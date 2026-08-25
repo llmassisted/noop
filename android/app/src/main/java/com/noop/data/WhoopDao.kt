@@ -462,6 +462,21 @@ interface WhoopDao : DeviceRegistryDao {
     )
     suspend fun events(deviceId: String, from: Long, to: Long, limit: Int): List<EventRow>
 
+    /** One event stream without reading every other event kind in the same window. Used by the Oura-HRV
+     *  comparison UI, where a long history can otherwise hit the generic event limit before newer RMSSD
+     *  buckets are reached. Read-only; no schema or persisted-value change. */
+    @Query(
+        "SELECT * FROM event WHERE deviceId = :deviceId AND kind = :kind AND ts >= :from AND ts <= :to " +
+            "ORDER BY ts ASC LIMIT :limit"
+    )
+    suspend fun eventsByKind(
+        deviceId: String,
+        kind: String,
+        from: Long,
+        to: Long,
+        limit: Int,
+    ): List<EventRow>
+
     @Query(
         "SELECT * FROM battery WHERE deviceId = :deviceId AND ts >= :from AND ts <= :to " +
             "ORDER BY ts ASC LIMIT :limit"

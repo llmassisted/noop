@@ -24,6 +24,22 @@ class OuraFeatureStatusTest {
     }
 
     @Test
+    fun restingHRAutomaticConfigurationMatchesRing4Protocol() {
+        assertArrayEquals(
+            intArrayOf(0x2F, 0x03, 0x22, 0x08, 0x01),
+            OuraCommands.restingHRAutomatic().bytes,
+        )
+        assertArrayEquals(
+            intArrayOf(0x2F, 0x03, 0x26, 0x08, 0x01),
+            OuraCommands.restingHRStateSubscribe().bytes,
+        )
+        assertArrayEquals(
+            intArrayOf(0x2F, 0x02, 0x20, 0x08),
+            OuraCommands.restingHRReadStatus().bytes,
+        )
+    }
+
+    @Test
     fun decodesTheFiveStatusBytes() {
         // The observed daytime-HR reply `2f 06 21 02 01 11 02 00` → sub-body `02 01 11 02 00`.
         val st = OuraDecoders.decodeFeatureStatus(intArrayOf(0x02, 0x01, 0x11, 0x02, 0x00))
@@ -44,7 +60,7 @@ class OuraFeatureStatusTest {
     }
 
     @Test
-    fun spo2AndStepsReadsSurfaceFeatureStatus() {
+    fun nonDaytimeReadsSurfaceFeatureStatus() {
         val d = OuraDriver(ringGen = OuraRingGen.GEN3, authKey = key)
         assertEquals(
             OuraDriver.SecureRouting.FeatureStatus(OuraFeatureStatus(0x04, 0, 0, 0, 0)),
@@ -53,6 +69,10 @@ class OuraFeatureStatusTest {
         assertEquals(
             OuraDriver.SecureRouting.FeatureStatus(OuraFeatureStatus(0x0B, 0, 0, 0, 0)),
             d.handleSecureFrame(OuraSecureFrame(0x21, intArrayOf(0x0B, 0, 0, 0, 0))),
+        )
+        assertEquals(
+            OuraDriver.SecureRouting.FeatureStatus(OuraFeatureStatus(0x08, 1, 2, 2, 1)),
+            d.handleSecureFrame(OuraSecureFrame(0x21, intArrayOf(0x08, 1, 2, 2, 1))),
         )
     }
 

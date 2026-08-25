@@ -264,6 +264,11 @@ object NoopPrefs {
 
     const val KEY_ANALYZE_WATERMARK = "noop.analyzeWatermark"
 
+    /** Exact persisted onset for the Sleep screen's "Going to sleep" → "I'm awake" pair. Unlike the
+     *  legacy metric-series marker (whose natural key only preserves a day), this survives an app/process
+     *  restart and lets the wake mark create the real manual sleep/nap session. Epoch seconds; 0 = none. */
+    const val KEY_PENDING_SLEEP_START = "noop.pendingSleepStart"
+
     /** "Power saving" (#477): when on, NOOP stretches its periodic strap-sync cadence (15 → 45 min) while
      *  the STRAP is discharging at/below [KEY_POWER_SAVING_BATTERY_PCT].
      *
@@ -407,6 +412,17 @@ object NoopPrefs {
 
     fun setAnalyzeWatermark(context: Context, fingerprint: String) {
         of(context).edit().putString(KEY_ANALYZE_WATERMARK, fingerprint).apply()
+    }
+
+    fun pendingSleepStart(context: Context): Long =
+        of(context).getLong(KEY_PENDING_SLEEP_START, 0L)
+
+    fun setPendingSleepStart(context: Context, epochSeconds: Long) {
+        of(context).edit().putLong(KEY_PENDING_SLEEP_START, epochSeconds.coerceAtLeast(0L)).apply()
+    }
+
+    fun clearPendingSleepStart(context: Context) {
+        of(context).edit().remove(KEY_PENDING_SLEEP_START).apply()
     }
 
     /** Whether NOOP should hold the strap connection open via a foreground service. Default true. */

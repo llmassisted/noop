@@ -67,6 +67,7 @@ import com.noop.data.PairedDeviceRow
 import com.noop.data.SourceKind
 import com.noop.data.WhoopLiveCapabilities
 import com.noop.oura.OuraRingGen
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
 // MARK: - Add a device - guided, branching wizard (MW-4)
@@ -359,7 +360,8 @@ fun AddDeviceWizard(
 
     /**
      * Register an adopted (or Advanced-key) Oura ring. Builds the oura [PairedDeviceRow] - id
-     * "oura-<address>", model = the picked generation's display name (the row recovers the gen via
+     * "oura-<serial>" when the reset advertisement exposes it (address fallback only for old firmware),
+     * model = the picked generation's display name (the row recovers the gen via
      * OuraRingGen.from(model)), sourceKind "oura" (routes the SourceCoordinator to [OuraLiveSource]),
      * gen-filtered capabilities - then registers it active so the live source starts. The Advanced path
      * also stores the user-supplied 16-byte key in the encrypted key store under the SAME id so the live
@@ -381,7 +383,13 @@ fun AddDeviceWizard(
         val now = System.currentTimeMillis() / 1000
         // Brand string, id prefix, and the "oura" routing come from the catalog via the type->brand bridge.
         val oura = ExperimentalBrand.OURA
-        val deviceId = "${oura.idPrefix}-${ring.address}"
+        val addressDeviceId = "${oura.idPrefix}-${ring.address}"
+        val deviceId = ring.advertisedSerial?.let { "${oura.idPrefix}-$it" } ?: addressDeviceId
+        // A previous attempt may already have received the ring's successful 0x25 install ACK before the
+        // old unpaced get_nonce write was dropped. Recover that exact address-keyed key under the serial and
+        // authenticate with it; never issue another install merely because the earlier UI stayed spinning.
+        val recoveredAcceptedKey =
+            deviceId != addressDeviceId && viewModel.recoverOuraInstallKey(addressDeviceId, deviceId)
         // Advanced (B-Alt): persist the pasted key BEFORE registering so the active source authenticates
         // with it WITHOUT a factory reset (the Oura app keeps working). This path NEVER arms adopt-intent,
         // so the live source never sends the dangerous install opcode.
@@ -392,7 +400,7 @@ fun AddDeviceWizard(
         if (ouraAdvanced) {
             val key = parseHexKey(ouraKeyDraft)
             if (key != null) viewModel.saveOuraInstallKey(deviceId, key)
-        } else {
+        } else if (!recoveredAcceptedKey) {
             viewModel.armOuraAdopt(deviceId)
         }
         val device = PairedDeviceRow(
@@ -657,6 +665,15 @@ fun AddDeviceWizard(
             // A needs-pairing message during Adopting is an honest failure too (covers the no-ack / ack!=OK
             // paths that surface via needsPairing rather than a phase flip alone).
             adoptNeedsPairing != null -> ouraStep = OuraStep.Failed
+        }
+    }
+    // Covers failures before the live source reaches a protocol phase at all (scan/connect/CCCD stalls).
+    // The transport has its own 12 s per-response deadline; this outer ceiling guarantees the wizard can
+    // never remain on "Taking over" indefinitely even when Android delivers no callback.
+    LaunchedEffect(type, ouraStep) {
+        if (type == DeviceType.Oura && ouraStep == OuraStep.Adopting) {
+            delay(45_000L)
+            if (ouraStep == OuraStep.Adopting) ouraStep = OuraStep.Failed
         }
     }
 }

@@ -110,6 +110,11 @@ enum class OuraRingGen(val raw: String) {
          * `OuraRingGen.from(hardwareId:)`.
          */
         fun fromHardwareId(hardwareId: String): OuraRingGen? {
+            // Ring 4's observed Frodo hardware id is ORE_06 (Defying/oura-ring4-ble real-device capture).
+            // Its suffix is a hardware revision, not the product generation, so handle it explicitly
+            // before the older BLB-style `_NN == generation` convention below.
+            if (hardwareId.equals("ORE_06", ignoreCase = true) ||
+                hardwareId.uppercase().endsWith("ORE_06")) return GEN4
             val underscore = hardwareId.lastIndexOf('_')
             if (underscore < 0) return null
             val digits = hardwareId.substring(underscore + 1).takeWhile { it.isDigit() }

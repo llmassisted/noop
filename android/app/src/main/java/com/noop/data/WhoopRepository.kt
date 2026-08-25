@@ -825,9 +825,15 @@ class WhoopRepository(
             startTs, endTs, System.currentTimeMillis() / 1000L,
         ) ?: return
         val computedId = computedDeviceId(strapDeviceId)
-        val stagesJSON = com.noop.analytics.SleepStageHealer.restageFromRaw(this, strapDeviceId, safeStartTs, safeEndTs)
+        val stagesJSON = com.noop.analytics.SleepStageHealer.restageFromRaw(
+            this, strapDeviceId, safeStartTs, safeEndTs,
+            allowCardioOnly = strapDeviceId.startsWith("oura-", ignoreCase = true),
+        )
             ?: com.noop.analytics.AnalyticsEngine.encodeStages(
-                listOf(com.noop.analytics.StageSegment(start = safeStartTs, end = safeEndTs, stage = "wake")),
+                // The user explicitly said this interval was sleep. With no raw rows yet, retain that
+                // evidence as an approximate light block rather than the old all-wake fallback, which
+                // made a successfully added nap contribute zero sleep and disappear from Rest.
+                listOf(com.noop.analytics.StageSegment(start = safeStartTs, end = safeEndTs, stage = "light")),
             )
         dao.insertSleepSession(
             SleepSession(
@@ -1152,6 +1158,14 @@ class WhoopRepository(
 
     suspend fun events(deviceId: String, from: Long, to: Long, limit: Int = DEFAULT_LIMIT) =
         dao.events(deviceId, from, to, limit)
+
+    suspend fun eventsByKind(
+        deviceId: String,
+        kind: String,
+        from: Long,
+        to: Long,
+        limit: Int = DEFAULT_LIMIT,
+    ) = dao.eventsByKind(deviceId, kind, from, to, limit)
 
     suspend fun batterySamples(deviceId: String, from: Long, to: Long, limit: Int = DEFAULT_LIMIT) =
         dao.batterySamples(deviceId, from, to, limit)
