@@ -56,10 +56,13 @@ import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
@@ -108,6 +111,14 @@ internal fun circadianBinsFrom(
     }
     return bins to days.size
 }
+
+/**
+ * Read-side device id for long-lived UI flows. Oura starts life under a rotating address id and adopts its
+ * stable serial after the first authenticated connection; the fallback covers startup/read failures, while
+ * distinct emissions make the address→serial handoff rebind Room collectors exactly once.
+ */
+internal fun activeReadDeviceIds(activeIds: Flow<String?>, fallback: String): Flow<String> =
+    activeIds.map { it ?: fallback }.distinctUntilChanged()
 
 class AppViewModel(app: Application) : AndroidViewModel(app) {
 
@@ -452,6 +463,12 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
      *  recordings under a read pinned to the literal "my-whoop" (#814 twin of the Workouts screen). */
     val deviceId = noopApp.activeDeviceId
 
+    /** Reactive counterpart to [deviceId]. This follows Oura's in-process address→serial adoption and any
+     * later active-device switch, so Health/Today never remain pinned to a namespace the writer left. */
+    private val activeReadDeviceId: StateFlow<String> =
+        activeReadDeviceIds(activeStrapIdFlow, deviceId)
+            .stateIn(viewModelScope, SharingStarted.Eagerly, deviceId)
+
     /** Last (bins, daysObserved) computed on the collector pass. Reused by the SYNCHRONOUS settings
      *  re-evaluate below, which has no coroutine to read the store from — without this, flipping the
      *  cycle-tracking toggle would blank the body clock until the next collector tick.
@@ -695,14 +712,12 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
      * rows (from [IntelligenceEngine]) gap-fill, so recovery/strain/sleep populate from
      * the strap with no WHOOP import.
      */
-    val recentDays: StateFlow<List<DailyMetric>> =
-        // #797: bound the dashboard merge window. The unbounded daysMergedFlow re-merged the WHOLE daily
-        // history on every DB change; a years-deep import made that a heavy refresh feeding Today / Trends /
-        // illness watch. recentDaysMergedFlow caps each source to RECENT_DAYS_CAP most-recent days first, so
-        // the merge stays bounded while every current surface (deepest Trends range, 7-day Fitness Age /
-        // Vitality windows) keeps its data. Same oldest-first ordering as before.
-        repository.recentDaysMergedFlow(deviceId)
-            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+    // #797: bound the dashboard merge window. The unbounded daysMergedFlow re-merged the WHOLE daily
+    // history on every DB change; a years-deep import made that a heavy refresh feeding Today / Trends /
+    // illness watch. The collector in init rebinds this flow when Oura adopts its stable serial, while each
+    // selected source remains capped and oldest-first.
+    private val _recentDays = MutableStateFlow<List<DailyMetric>>(emptyList())
+    val recentDays: StateFlow<List<DailyMetric>> = _recentDays.asStateFlow()
 
     /**
      * #103: SpO₂ candidate @82 nightly mean per day, loaded from the "spo2_candidate" metricSeries
@@ -716,7 +731,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
             else {
                 val from = days.first().day
                 val to = days.last().day
-                repository.metricSeriesComputedUnion(deviceId, "spo2_candidate", from, to)
+                repository.metricSeriesComputedUnion(activeReadDeviceId.value, "spo2_candidate", from, to)
                     .associate { it.day to it.value }
             }
         }.flowOn(Dispatchers.IO)
@@ -731,7 +746,9 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     val hrvOverCountByDay: StateFlow<Map<String, Double>> =
         recentDays.map { days ->
             if (days.isEmpty()) emptyMap()
-            else repository.metricSeriesComputedUnion(deviceId, "hrv_rr_overcount", days.first().day, days.last().day)
+            else repository.metricSeriesComputedUnion(
+                activeReadDeviceId.value, "hrv_rr_overcount", days.first().day, days.last().day,
+            )
                 .associate { it.day to it.value }
         }.flowOn(Dispatchers.IO)
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyMap())
@@ -792,6 +809,16 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         // existing WHOOP flow below runs unchanged; it only acts when a non-WHOOP strap is the active
         // device. The Devices screen (next task) calls onActiveDeviceChanged after a setActive.
         noopApp.sourceCoordinator.start()
+        // Rebind the dashboard/Health Room flow when the active id changes in-process. This is especially
+        // important for Oura: the first authenticated connection replaces its rotating address id with the
+        // stable serial and re-keys the rows. A collector pinned to the startup id then sees no computed
+        // daily rows even though decoding/persistence succeeded (the missing skin-temperature symptom).
+        viewModelScope.launch {
+            activeReadDeviceId.collectLatest { id ->
+                _recentDays.value = emptyList()
+                repository.recentDaysMergedFlow(id).collect { _recentDays.value = it }
+            }
+        }
         // #1410: on the first launch after an update, append an APP_VERSION_CHANGED event so a single
         // export can answer "what ran when". Idempotent — the stored last-seen version only advances
         // once the transition is recorded, so a background-only launch is caught on the next UI open.
@@ -1017,7 +1044,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                 IntelligenceEngine.runEffortRescoreIfNeeded(
                     repo = repository,
                     profile = currentProfile(),
-                    importedDeviceId = deviceId,
+                    importedDeviceId = activeReadDeviceId.value,
                     maxHROverride = profileStore.hrMaxOverride.takeIf { it > 0 }?.toDouble(),
                     flagGet = { NoopPrefs.effortRescoreDone(appContext) },
                     flagSet = { NoopPrefs.setEffortRescoreDone(appContext) },
@@ -1060,12 +1087,13 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                 // attribution. Read the watermark ONCE — the gate and the log line must agree, and a second
                 // read could straddle a concurrent write from a completing pass.
                 val analyzeHasNewData = analyzeFp != NoopPrefs.analyzeWatermark(appContext)
+                val scoringDeviceId = activeReadDeviceId.value
                 if (analyzeHasNewData) ble.externalLog("re-score: trigger=idle newData=yes")
                 if (analyzeHasNewData) runCatching {
                     IntelligenceEngine.analyzeRecent(
                         repo = repository,
                         profile = currentProfile(),
-                        importedDeviceId = deviceId,
+                        importedDeviceId = scoringDeviceId,
                         maxHROverride = profileStore.hrMaxOverride
                             .takeIf { it > 0 }?.toDouble(),
                         // I2 read-through (Phase 1B-4): resolve the single owning device per day from the
@@ -1175,7 +1203,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                 // cycle just upserts. Never let an HC hiccup (perm revoked mid-flight, provider
                 // update) break the analysis loop.
                 if (_hcWriteback.value) {
-                    runCatching { HealthConnectWriter.write(appContext, repository, deviceId) }
+                    runCatching { HealthConnectWriter.write(appContext, repository, scoringDeviceId) }
                     refreshHcWritebackStatus()   // #660: reflect the outcome the writer just persisted
                 }
                 // 15-min backstop cadence, but wake EARLY on an app-resume kick (#386 self-heal) so a
