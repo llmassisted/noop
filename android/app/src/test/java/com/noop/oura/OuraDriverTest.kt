@@ -399,7 +399,10 @@ class OuraDriverTest {
         // 0x7B SpO2 stable record -> one spo2 event (970, BE).
         val rec = OuraFraming.parseRecord(bytes("7b060200010003ca"))!!
         val events = d.ingest(rec)
-        assertEquals(listOf(OuraEvent.Spo2(OuraSpO2(ringTimestamp = rt, value = 970))), events)
+        assertEquals(
+            listOf(OuraEvent.Spo2(OuraSpO2(ringTimestamp = rt, value = 970, unit = OuraSpO2Channel.STABLE_UNIT))),
+            events,
+        )
     }
 
     @Test
@@ -842,13 +845,13 @@ class OuraDriverTest {
         val value = bytes("7b060200010003ca" + "460802000100420e470e")
         val events = d.ingest(notification = value, reassembler = reassembler)
         assertEquals(3, events.size)
-        assertEquals(OuraEvent.Spo2(OuraSpO2(ringTimestamp = rt, value = 970)), events[0])
+        assertEquals(OuraEvent.Spo2(OuraSpO2(ringTimestamp = rt, value = 970, unit = OuraSpO2Channel.STABLE_UNIT)), events[0])
         assertEquals(36.50, (events[1] as OuraEvent.Temp).value.celsius, 1e-9)
         assertEquals(36.55, (events[2] as OuraEvent.Temp).value.celsius, 1e-9)
         // The phantom-storm guarantee kept: a tail that does NOT tile (the 0x46's declared length
         // overshoots the value) is ignored, never walked into records.
         val cut = d.ingest(notification = bytes("7b060200010003ca" + "460802000100420e47"), reassembler = reassembler)
-        assertEquals(listOf<OuraEvent>(OuraEvent.Spo2(OuraSpO2(ringTimestamp = rt, value = 970))), cut)
+        assertEquals(listOf<OuraEvent>(OuraEvent.Spo2(OuraSpO2(ringTimestamp = rt, value = 970, unit = OuraSpO2Channel.STABLE_UNIT))), cut)
         // Each notification decodes on its own: the temp record in its OWN value decodes fully.
         val tempEvents = d.ingest(notification = bytes("460802000100420e470e"), reassembler = reassembler)
         assertEquals(2, tempEvents.size)

@@ -308,11 +308,14 @@ public enum OuraDecoders {
 
     /// Decode the 0x7B spo2_stable_event: a SINGLE uint16 BIG-endian at bytes 6-7. This is the lone
     /// exception to the LE default. Per OURA_PROTOCOL.md s6.6. Returns nil on a short body.
+    ///
+    /// Tagged `OuraSpO2Channel.stableUnit`, NOT the 0x6F percentage tag: the u16's scale is unpinned, so
+    /// the sample must not pass the percentage-only persist gate in `OuraStreamMapping`. Kotlin matches.
     public static func decodeSpO2Stable(_ rec: OuraRecord) -> OuraSpO2? {
         let b = rec.payload
         guard b.count >= 2 else { return nil }
         let value = u16be(b, 0)                       // BIG-endian footgun
-        return OuraSpO2(ringTimestamp: rec.ringTimestamp, value: value)
+        return OuraSpO2(ringTimestamp: rec.ringTimestamp, value: value, unit: OuraSpO2Channel.stableUnit)
     }
 
     // MARK: - SpO2 DC, sign-magnitude deltas (0x77; s6.7)

@@ -101,6 +101,8 @@ class OuraSpO2ChannelOracleTest {
         val stable = OuraDecoders.decodeSpO2Stable(
             OuraRecord(type = 0x7B, ringTimestamp = 100L, payload = intArrayOf(0x00, 0x60)),
         )
-        assertEquals(OuraSpO2Channel.PERCENTAGE, stable!!.channel)
+        // 0x7B's scale is unpinned (the golden vector decodes to 970): its own tag, UNKNOWN, never a %.
+        assertEquals(OuraSpO2Channel.STABLE_UNIT, stable!!.unit)
+        assertEquals(OuraSpO2Channel.UNKNOWN, stable.channel)
     }
 }

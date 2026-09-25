@@ -152,15 +152,18 @@ data class OuraSpO2(
  */
 enum class OuraSpO2Channel {
     /**
-     * 0x6F / 0x7B — a firmware-computed SpO2 percentage. (The unit tag is the legacy string `"raw"`,
-     * which names the CHANNEL, not the quantity; see `decodeSpO2Event`.)
+     * 0x6F — a firmware-computed SpO2 percentage. (The unit tag is the legacy string `"raw"`, which
+     * names the CHANNEL, not the quantity; see `decodeSpO2PerSample`.)
      */
     PERCENTAGE,
 
     /** 0x77 — a raw DC perfusion magnitude. Not a percentage, and never stored as one. */
     PERFUSION,
 
-    /** A unit tag no decoder stamps today (a case variant, or a future tag). Named, never a percentage. */
+    /**
+     * A channel whose scale is not pinned (0x7B's [STABLE_UNIT]), or a unit tag no decoder stamps (a case
+     * variant, or a future tag). Named, never a percentage.
+     */
     UNKNOWN,
     ;
 
@@ -176,11 +179,21 @@ enum class OuraSpO2Channel {
     }
 
     companion object {
-        /** The unit tag 0x6F and 0x7B stamp on their samples (`OuraSpO2`'s default). */
+        /** The unit tag 0x6F stamps on its samples (`OuraSpO2`'s default). */
         const val PERCENTAGE_UNIT = "raw"
 
         /** The unit tag 0x77 stamps on its samples. */
         const val PERFUSION_UNIT = "dc_raw"
+
+        /**
+         * The unit tag 0x7B stamps on its sample. It deliberately resolves to UNKNOWN: the value is a
+         * big-endian u16 whose scale no source pins (OURA_PROTOCOL.md s6.6), and the golden vector decodes
+         * to 970, not a percentage. It used to share the 0x6F `"raw"` tag, which let it through the
+         * OuraStreamMapping percentage-only persist gate into the same `Spo2Sample.red` column as the
+         * ring's real percentages. Promote it to PERCENTAGE only once a capture pins its scale. Twin of
+         * Swift `OuraSpO2Channel.stableUnit`.
+         */
+        const val STABLE_UNIT = "stable_raw"
 
         /**
          * Resolve a sample's channel from its unit tag. Both known tags match exactly (case-sensitive,

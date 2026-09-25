@@ -113,7 +113,8 @@ object OuraStreamMapping {
                 }
 
                 is OuraEvent.Spo2 -> {
-                    // Only persist the 0x6F/0x70 channel (unit == "raw"): a real overnight capture
+                    // Only persist the 0x6F channel (unit == "raw"; 0x70 is Tier B and never reaches Spo2,
+                    // and 0x7B tags itself "stable_raw" because its scale is unpinned): a real overnight capture
                     // (2026-07-30/31, 22516 samples) clusters tightly at 95-105, matching a genuine %SpO2
                     // reading. The 0x77 DC channel (unit == "dc_raw") is a wildly different-scale raw
                     // PPG/perfusion signal (-9K to +11.7M in the same capture) - not SpO2 at all, so

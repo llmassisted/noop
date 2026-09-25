@@ -129,7 +129,7 @@ final class OuraStreamMappingTests: XCTestCase {
             .spo2(OuraSpO2(ringTimestamp: 100, value: 970, unit: "raw")),
             .spo2(OuraSpO2(ringTimestamp: 101, value: 12345, unit: "dc_raw")),
         ], at: ts)
-        // Only the "raw" 0x6F/0x7B channel persists: a real capture shows it clustering at 95-105
+        // Only the "raw" 0x6F channel persists: a real capture shows it clustering at 95-105
         // (genuine %SpO2), while "dc_raw" (0x77) is a wildly different-scale raw PPG/perfusion signal
         // (-9K to +11.7M) that would corrupt a blind mean over `red` if it were mixed in.
         XCTAssertEqual(s.spo2.map { $0.red }, [970])
@@ -143,6 +143,15 @@ final class OuraStreamMappingTests: XCTestCase {
         let s = OuraStreamMapping.streams(from: [
             .spo2(OuraSpO2(ringTimestamp: 100, value: 11_709_098, unit: "dc_raw")),
         ], at: ts)
+        XCTAssertTrue(s.spo2.isEmpty)
+    }
+
+    /// 0x7B's scale is unpinned, so its decoded sample must not reach the SpO2 % column. Fed through the
+    /// real decoder (not a hand-set unit) so a decoder that regresses to the 0x6F tag fails here.
+    func testSpO2StableChannelIsDroppedNotPersisted() throws {
+        let rec = OuraRecord(type: 0x7B, ringTimestamp: 100, payload: [0x03, 0xCA])
+        let stable = try XCTUnwrap(OuraDecoders.decodeSpO2Stable(rec))
+        let s = OuraStreamMapping.streams(from: [.spo2(stable)], at: ts)
         XCTAssertTrue(s.spo2.isEmpty)
     }
 

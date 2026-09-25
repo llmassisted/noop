@@ -362,7 +362,7 @@ final class OuraDriverTests: XCTestCase {
         // 0x7B SpO2 stable record -> one spo2 event (970, BE).
         let rec = OuraFraming.parseRecord(bytes("7b060200010003ca"))!
         let events = d.ingest(record: rec)
-        XCTAssertEqual(events, [.spo2(OuraSpO2(ringTimestamp: rt, value: 970))])
+        XCTAssertEqual(events, [.spo2(OuraSpO2(ringTimestamp: rt, value: 970, unit: OuraSpO2Channel.stableUnit))])
     }
 
     func testIngestUnknownTagYieldsNothing() {
@@ -692,7 +692,7 @@ final class OuraDriverTests: XCTestCase {
         // The ring streams one event per notification; feed them separately, not packed. A 0x7B SpO2
         // notification, then a 0x46 temp notification (whose payload holds two int16 samples).
         let spo2 = d.ingest(notification: bytes("7b060200010003ca"), reassembler: reassembler)
-        XCTAssertEqual(spo2, [.spo2(OuraSpO2(ringTimestamp: rt, value: 970))])
+        XCTAssertEqual(spo2, [.spo2(OuraSpO2(ringTimestamp: rt, value: 970, unit: OuraSpO2Channel.stableUnit))])
         let temp = d.ingest(notification: bytes("460802000100420e470e"), reassembler: reassembler)
         XCTAssertEqual(temp, [
             .temp(OuraTemp(ringTimestamp: rt, celsius: 36.50)),
@@ -708,7 +708,7 @@ final class OuraDriverTests: XCTestCase {
         let reassembler = OuraReassembler()
         let value = bytes("7b060200010003ca" + "460802000100420e470e")
         let events = d.ingest(notification: value, reassembler: reassembler)
-        XCTAssertEqual(events, [.spo2(OuraSpO2(ringTimestamp: rt, value: 970)),
+        XCTAssertEqual(events, [.spo2(OuraSpO2(ringTimestamp: rt, value: 970, unit: OuraSpO2Channel.stableUnit)),
                                 .temp(OuraTemp(ringTimestamp: rt, celsius: 36.5)),
                                 .temp(OuraTemp(ringTimestamp: rt, celsius: 36.55))])
     }
@@ -720,7 +720,7 @@ final class OuraDriverTests: XCTestCase {
         let reassembler = OuraReassembler()
         let value = bytes("7b060200010003ca" + "460802000100420e47")   // 0x46's declared len overshoots
         let events = d.ingest(notification: value, reassembler: reassembler)
-        XCTAssertEqual(events, [.spo2(OuraSpO2(ringTimestamp: rt, value: 970))])
+        XCTAssertEqual(events, [.spo2(OuraSpO2(ringTimestamp: rt, value: 970, unit: OuraSpO2Channel.stableUnit))])
     }
 
     // MARK: - Generation-driven command set / MTU

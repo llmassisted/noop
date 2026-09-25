@@ -50,12 +50,13 @@ public enum OuraStreamMapping {
     ///   - `.hr`         (0x55 live-HR push)            → `hr:[HRSample]`
     ///   - `.ibi`        (0x44/0x60 IBI)                → `rr:[RRInterval]`
     ///   - `.hrv`        (0x5D HRV tag, u8 hr/rmssd pairs) → `events:[WhoopEvent(kind: OURA_HRV)]` (one row per 5-min bucket)
-    ///   - `.spo2`       (0x6F/0x70 ONLY)              → `spo2:[SpO2Sample]`, carrying the decoder's own
-    ///     `unit` tag. NOT all one quantity: 0x6F/0x70 are firmware-computed PERCENTAGES (tagged `"raw"`,
+    ///   - `.spo2`       (0x6F ONLY)                   → `spo2:[SpO2Sample]`, carrying the decoder's own
+    ///     `unit` tag. NOT all one quantity: 0x6F is a firmware-computed PERCENTAGE (tagged `"raw"`,
     ///     a legacy channel label — see `OuraDecoders.decodeSpO2PerSample`), while 0x77 is a genuine raw
     ///     DC channel tagged `"dc_raw"` on a wholly different scale. **0x77 is decoded but NOT persisted**
     ///     — it is filtered at the guard below, because blending two scales into one `red` column corrupts
-    ///     any consumer that averages the stream without a unit filter. Nothing is written to `spo2Pct`.
+    ///     any consumer that averages the stream without a unit filter. 0x7B (`"stable_raw"`, a u16 of
+    ///     unpinned scale) is dropped by the same guard. Nothing is written to `spo2Pct`.
     ///   - `.temp`       (0x46/0x75)                    → `skinTemp:[SkinTempSample(raw_adc)]`
     ///   - `.sleepPhase` (0x4E/0x5A 2-bit codes)        → `events:[WhoopEvent(kind: OURA_SLEEP_PHASE)]`
     ///   - `.battery`                                   → `battery:[BatterySample]`
@@ -126,7 +127,8 @@ public enum OuraStreamMapping {
                 ]))
 
             case .spo2(let v):
-                // Only persist the 0x6F/0x70 channel (`unit == "raw"`): a real overnight capture
+                // Only persist the 0x6F channel (`unit == "raw"`; 0x70 is Tier B and never reaches `.spo2`,
+                // and 0x7B tags itself `stable_raw` because its scale is unpinned): a real overnight capture
                 // (2026-07-30/31, 22516 samples) clusters tightly at 95-105, matching a genuine %SpO2
                 // reading. The 0x77 DC channel (`unit == "dc_raw"`) is a wildly different-scale raw
                 // PPG/perfusion signal (-9K to +11.7M in the same capture) - not SpO2 at all, so blending

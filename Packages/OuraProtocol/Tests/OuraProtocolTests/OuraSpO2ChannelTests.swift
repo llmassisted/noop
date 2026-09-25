@@ -92,10 +92,22 @@ final class OuraSpO2ChannelTests: XCTestCase {
         XCTAssertGreaterThan(out[0].value, 100, "a perfusion base is not a percentage")
     }
 
-    /// 0x7B carries a single BIG-endian value and takes the default unit, so it is a percentage too.
-    func testDecodedSpO2StableIsThePercentageChannel() throws {
+    /// 0x7B carries a single BIG-endian u16 whose scale nothing pins (the golden vector decodes to 970),
+    /// so it gets its own tag and resolves to `.unknown` — NOT `.percentage`. Sharing the 0x6F tag let it
+    /// through `OuraStreamMapping`'s percentage-only persist gate into the SpO2 % column.
+    func testDecodedSpO2StableIsNotThePercentageChannel() throws {
         let rec = OuraRecord(type: 0x7B, ringTimestamp: 100, payload: [0x00, 0x60])
         let s = try XCTUnwrap(OuraDecoders.decodeSpO2Stable(rec))
-        XCTAssertEqual(s.channel, .percentage)
+        XCTAssertEqual(s.unit, OuraSpO2Channel.stableUnit)
+        XCTAssertEqual(s.channel, .unknown)
+        XCTAssertNotEqual(OuraSpO2Channel.stableUnit, OuraSpO2Channel.percentageUnit)
+    }
+
+    /// The 0x7B log line never claims a percentage.
+    func testStableChannelLineHasNoPercentSign() {
+        let line = OuraSpO2Channel.firstDecodedLogLine(value: 970, unit: OuraSpO2Channel.stableUnit)
+        XCTAssertEqual(line,
+                       #"first SpO2 sample on an unrecognised channel (NOT known to be a percentage) decoded (last night) - 970 (channel "stable_raw")"#)
+        XCTAssertFalse(line.contains("%"), line)
     }
 }
