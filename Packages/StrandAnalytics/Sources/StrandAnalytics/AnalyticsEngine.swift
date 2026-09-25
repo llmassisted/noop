@@ -1309,10 +1309,18 @@ public enum AnalyticsEngine {
     /// No wear gate (unlike skin temp): the strap streams SpO2 only on-wrist, so there's nothing to
     /// exclude, and this name — matching the Kotlin `nightlySpo2RawMeans` twin — avoids the "worn"
     /// prefix's false implication of a gate. (#93)
+    ///
+    /// TWO-CHANNEL ROWS ONLY (`ir > 0`). The same table holds the Oura ring's single-channel rows, which
+    /// `OuraStreamMapping` writes as `red` = the ring's reading and `ir = 0` (an unread channel). Averaging
+    /// those in produced an `ir` mean of 0 beside a `red` mean of ~97, so the Health "Raw SpO₂" tile — the
+    /// `(red + ir) / 2` ADC mean — read a ring night's ~97 % as "~49 ADC"; a pre-#2152 `dc_raw` row (up to
+    /// ~11.7M) inflated it further. A ring has no red/IR ADC pair, so its night yields nil here and the
+    /// tile stays empty; its SpO2 lives on the `nightlySpo2CeilingMean` path. A WHOOP 4.0 sample with a
+    /// zero IR reading was never a usable ADC pair either. Byte-parity twin of the Kotlin function.
     static func nightlySpo2RawMeans(_ sessions: [SleepSession], spo2: [SpO2Sample]) -> (red: Int, ir: Int)? {
         guard !sessions.isEmpty, !spo2.isEmpty else { return nil }
         var redSum = 0, irSum = 0, kept = 0
-        for s in spo2 where sessions.contains(where: { $0.start <= s.ts && s.ts <= $0.end }) {
+        for s in spo2 where s.ir > 0 && sessions.contains(where: { $0.start <= s.ts && s.ts <= $0.end }) {
             redSum += s.red; irSum += s.ir; kept += 1
         }
         guard kept > 0 else { return nil }

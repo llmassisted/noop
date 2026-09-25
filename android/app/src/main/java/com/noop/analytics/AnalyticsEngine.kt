@@ -1097,6 +1097,14 @@ object AnalyticsEngine {
      * wear gate (unlike skin temp): the strap only streams SpO2 on-wrist, so there is no off-charger
      * drift to exclude, and the value is surfaced honestly as raw ADC — never scored — so there is
      * nothing to poison into a fake %. Pure + deterministic; twin of the Swift `nightlySpo2RawMeans`. (#93)
+     *
+     * TWO-CHANNEL ROWS ONLY (`ir > 0`). The same table holds the Oura ring's single-channel rows, which
+     * OuraStreamMapping writes as `red` = the ring's reading and `ir = 0` (an unread channel). Averaging
+     * those in produced an `ir` mean of 0 beside a `red` mean of ~97, so the Health "Raw SpO₂" tile — the
+     * `(red + ir) / 2` ADC mean — read a ring night's ~97 % as "~49 ADC"; a pre-#2152 `dc_raw` row (up to
+     * ~11.7M) inflated it further. A ring has no red/IR ADC pair, so its night yields null here and the
+     * tile stays empty; its SpO2 lives on the [nightlySpo2CeilingMean] path. A WHOOP 4.0 sample with a
+     * zero IR reading was never a usable ADC pair either.
      */
     internal fun nightlySpo2RawMeans(
         sessions: List<DetectedSleep>,
@@ -1107,6 +1115,7 @@ object AnalyticsEngine {
         var irSum = 0L
         var kept = 0
         for (s in spo2) {
+            if (s.ir <= 0) continue
             if (sessions.none { s.ts in it.start..it.end }) continue
             redSum += s.red
             irSum += s.ir

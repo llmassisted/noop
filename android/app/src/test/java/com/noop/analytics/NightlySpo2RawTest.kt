@@ -70,4 +70,44 @@ class NightlySpo2RawTest {
         assertEquals(20, red)   // (10 + 30) / 2
         assertEquals(30, ir)    // (20 + 40) / 2
     }
+
+    // The same table carries the Oura ring's single-channel rows (red = the ring's reading, ir = 0, as
+    // OuraStreamMapping writes them). They used to be averaged in, so a ring night reported an IR mean of
+    // 0 beside a red mean of ~97 and the Raw SpO₂ tile's (red + ir) / 2 showed ~97 % as "~49 ADC".
+    // Twin of the Swift Spo2RawNightlyTests.
+
+    private fun ring(ts: Long, value: Int) = Spo2Sample(deviceId = "oura-ring", ts = ts, red = value, ir = 0)
+
+    @Test
+    fun ringOnlyNight_hasNoRawMeans() {
+        val sessions = listOf(sleep(1000, 2000))
+        assertNull(AnalyticsEngine.nightlySpo2RawMeans(sessions, listOf(ring(1100, 97), ring(1200, 98))))
+    }
+
+    @Test
+    fun legacyPerfusionRow_isExcluded() {
+        // A pre-#2152 dc_raw row, stored with ir = 0, cannot inflate the mean either.
+        assertNull(AnalyticsEngine.nightlySpo2RawMeans(listOf(sleep(1000, 2000)), listOf(ring(1100, 11_709_098))))
+    }
+
+    @Test
+    fun singleChannelRows_doNotDiluteTwoChannelMeans() {
+        val sessions = listOf(sleep(1000, 2000))
+        val samples = listOf(
+            spo2(1100, red = 100, ir = 200),
+            ring(1200, 97),
+            spo2(1300, red = 300, ir = 400),
+        )
+        val (red, ir) = AnalyticsEngine.nightlySpo2RawMeans(sessions, samples)!!
+        assertEquals(200, red)   // (100 + 300) / 2 — the ring row must not count
+        assertEquals(300, ir)
+    }
+
+    @Test
+    fun ringRows_stillReachTheCeilingMean() {
+        val sessions = listOf(sleep(1000, 2000))
+        val rows = listOf(ring(1100, 97), ring(1200, 99))
+        assertNull(AnalyticsEngine.nightlySpo2RawMeans(sessions, rows))
+        assertEquals(98, AnalyticsEngine.nightlySpo2CeilingMean(sessions, rows)!!.first)
+    }
 }

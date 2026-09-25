@@ -189,8 +189,11 @@ enum BodyVitalSigns {
             : []
         // WHOOP 4.0 raw SpO₂: the (red + IR) / 2 ADC mean per night, present only when both channels
         // decoded for the day. On-device only, so this resolves to the NOOP-computed row. (#93)
+        // `i > 0`: an Oura night scored before `nightlySpo2RawMeans` went two-channel-only stored the
+        // ring's single channel as red ≈ 97 beside ir = 0, which this mean read as "~49 ADC". A ring has
+        // no red/IR ADC pair, so such a row is not a raw reading. Twin of Android `twoChannelRawSpo2Mean`.
         let spo2rawPoints = points(key: "spo2raw") { m in
-            guard let r = m.spo2Red, let i = m.spo2Ir else { return nil }
+            guard let r = m.spo2Red, let i = m.spo2Ir, i > 0 else { return nil }
             return (Double(r) + Double(i)) / 2.0
         }
         let rhrPoints = points(key: "rhr") { $0.restingHr.map(Double.init) }

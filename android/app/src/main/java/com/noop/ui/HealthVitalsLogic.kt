@@ -228,6 +228,20 @@ internal fun spo2MissingCaptionRes(hasRawSpo2: Boolean): Int =
     if (hasRawSpo2) R.string.l10n_health_screen_raw_counts_only_needs_an_import_d0e33552
     else R.string.l10n_health_screen_no_spo_import_or_health_value_408f8c55
 
+/**
+ * The Raw SpO₂ tile's value for one night: the WHOOP 4.0 (red + IR) / 2 ADC mean, or null when the row
+ * carries no two-channel pair. `spo2Ir > 0` is part of "a pair": an Oura night scored before
+ * `nightlySpo2RawMeans` went two-channel-only stored the ring's single channel as red ≈ 97 beside
+ * ir = 0, which this mean read as "~49 ADC". One function so the tile's value and its latest-row
+ * predicate cannot disagree. Pure, so it is JVM-testable. Twin of the iOS `spo2rawPoints` guard.
+ */
+internal fun twoChannelRawSpo2Mean(row: DailyMetric): Double? {
+    val red = row.spo2Red ?: return null
+    val ir = row.spo2Ir ?: return null
+    if (ir <= 0) return null
+    return (red + ir) / 2.0
+}
+
 internal enum class VitalCaptionMode {
     AS_OF,
     RANGE,
@@ -339,9 +353,7 @@ internal fun vitalsFor(
     )
     // WHOOP 4.0 raw SpO₂: the (red + IR) / 2 ADC mean per night, present only when both channels
     // decoded for the day. Averaged for a single "signal decoded" tile; both channels stay in the DB. (#93)
-    val spo2RawMean: (DailyMetric) -> Double? = { row ->
-        if (row.spo2Red != null && row.spo2Ir != null) (row.spo2Red + row.spo2Ir) / 2.0 else null
-    }
+    val spo2RawMean: (DailyMetric) -> Double? = ::twoChannelRawSpo2Mean
     val spo2rawRangeCaption =
         rangeCaption(days.mapNotNull(spo2RawMean), "ADC") { String.format(Locale.US, "%.0f", it) }
     return listOf(
@@ -486,7 +498,7 @@ internal fun latestVitals(
         latestVital("spo2", days, tempUnit, emptyByKey, spo2CandidateByDay, spo2ToggleOn) {
             it.spo2Pct != null || spo2CandidateByDay[it.day] != null
         },
-        latestVital("spo2raw", days, tempUnit, emptyByKey, spo2CandidateByDay, spo2ToggleOn) { it.spo2Red != null && it.spo2Ir != null },
+        latestVital("spo2raw", days, tempUnit, emptyByKey, spo2CandidateByDay, spo2ToggleOn) { twoChannelRawSpo2Mean(it) != null },
         latestVital("rhr", days, tempUnit, emptyByKey, spo2CandidateByDay, spo2ToggleOn) { it.restingHr != null },
         latestVital("hrv", days, tempUnit, emptyByKey, hrvOverCountByDay = hrvOverCountByDay) { it.avgHrv != null },
         // #1846: pass the preference (the other keys' rows don't read it). The predicate takes EITHER
