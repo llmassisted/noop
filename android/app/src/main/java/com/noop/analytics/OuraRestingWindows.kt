@@ -18,7 +18,7 @@ data class OuraRestingWindow(
 /**
  * Converts durable Oura 0x5D events into resting windows without claiming that every rest is sleep.
  *
- * Every valid bucket is retained in [windows], including short awake rest and naps. [sleepCandidates]
+ * Every valid bucket is retained in [windows], including short awake rest and naps. [isSleepCandidate]
  * is deliberately narrower: in the absence of the ring's SleepNet phases, only a long continuous block
  * is strong enough to supply an automatic in-bed boundary. Short naps are recorded through NOOP's
  * explicit bedtime/wake or add-nap paths; a 40-minute awake resting block must not become fake sleep.
@@ -78,7 +78,4 @@ object OuraRestingWindows {
             // Tolerate an occasional missing native bucket, but do not join a sparse scatter of resting
             // values into one claimed sleep block merely because every individual gap stayed under 15 min.
             window.bucketCount * BUCKET_SECONDS * 10L >= window.durationSeconds * 7L
-
-    fun sleepCandidates(events: List<EventRow>): List<OuraRestingWindow> =
-        windows(events).filter(::isSleepCandidate)
 }

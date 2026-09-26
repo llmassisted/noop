@@ -302,7 +302,7 @@ private fun SyncStatusSection(vm: AppViewModel, onSyncNow: () -> Unit) {
                         showsDot = false,
                     )
                     !activeIsOura && !live.bonded -> StatePill(
-                        title = "Finishing pairing",
+                        title = uiString(R.string.oura_hrv_pairing),
                         tone = StrandTone.Neutral,
                         showsDot = true,
                         pulsing = true,
@@ -583,7 +583,7 @@ private fun HealthContributorsSection(day: DailyMetric?) {
                 // a staggered fade+rise, mirroring iOS `.staggeredAppear(index:)`.
                 ContributorBar(
                     label = "HRV",
-                    readout = hrv?.let { "${it.roundToInt()} ms" } ?: "—",
+                    readout = hrv?.let { uiString(R.string.today_driver_value_ms, it.roundToInt()) } ?: "—",
                     fraction = hrv?.let { (it - 20.0) / 100.0 },
                     color = Palette.metricCyan,
                     modifier = Modifier.staggeredAppear(0),
@@ -2040,7 +2040,7 @@ fun VitalDetailScreen(vm: AppViewModel, key: String) {
         if (key == "hrv" && !ouraHrvLoaded) {
             DataPendingNote(
                 title = uiString(R.string.l10n_health_screen_loading_33ce4174),
-                body = "Fetching the ring's native HRV history.",
+                body = uiString(R.string.oura_hrv_loading),
             )
             return@ScreenScaffold
         }
@@ -2052,8 +2052,8 @@ fun VitalDetailScreen(vm: AppViewModel, key: String) {
                 HrvSourcesCard(noopComputedHrv, ouraHrv)
                 HrvComparisonTable(noopComputedHrv, ouraHrv)
                 DataPendingNote(
-                    title = "NOOP HRV trend is still calibrating",
-                    body = "The resting-window comparison is available above. NOOP's nightly trend still needs detected sleep sessions.",
+                    title = uiString(R.string.oura_hrv_calibrating),
+                    body = uiString(R.string.oura_hrv_rest_available),
                 )
                 return@ScreenScaffold
             }
@@ -2518,9 +2518,9 @@ private fun HrvSourcesCard(
     NoopCard {
         Column(verticalArrangement = Arrangement.spacedBy(Metrics.space12)) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Overline("HRV sources", modifier = Modifier.weight(1f))
+                Overline(uiString(R.string.oura_hrv_sources), modifier = Modifier.weight(1f))
                 Text(
-                    if (sameNight) vitalReadingDateLabel(oura.day) else "Latest available",
+                    if (sameNight) vitalReadingDateLabel(oura.day) else uiString(R.string.oura_hrv_latest),
                     style = NoopType.caption,
                     color = Palette.textTertiary,
                 )
@@ -2528,14 +2528,14 @@ private fun HrvSourcesCard(
             Row(horizontalArrangement = Arrangement.spacedBy(Metrics.space12)) {
                 HrvSourceValue(
                     modifier = Modifier.weight(1f),
-                    label = "NOOP computed",
+                    label = uiString(R.string.oura_hrv_computed),
                     value = noop?.value,
                     day = noop?.day,
                     tint = Palette.metricPurple,
                 )
                 HrvSourceValue(
                     modifier = Modifier.weight(1f),
-                    label = "Oura ring",
+                    label = uiString(R.string.l10n_add_device_wizard_oura_ring_e3431536),
                     value = oura.valueMs,
                     day = oura.day,
                     tint = Palette.metricCyan,
@@ -2543,14 +2543,9 @@ private fun HrvSourcesCard(
             }
             Text(
                 if (noop?.fromRestingWindow == true) {
-                    "NOOP computes RMSSD from stored intervals in the same ring-provided resting window. " +
-                        "This comparison does not feed Charge until NOOP has a detected sleep session. " +
-                        "Oura ring is the mean of ${oura.bucketCount} native five-minute RMSSD " +
-                        if (oura.bucketCount == 1) "bucket." else "buckets."
+                    uiString(R.string.oura_hrv_resting_detail, oura.bucketCount)
                 } else {
-                    "NOOP computes RMSSD from stored intervals and remains the value used by Charge. " +
-                        "Oura ring is the mean of ${oura.bucketCount} native five-minute RMSSD " +
-                        if (oura.bucketCount == 1) "bucket." else "buckets."
+                    uiString(R.string.oura_hrv_nightly_detail, oura.bucketCount)
                 },
                 style = NoopType.footnote,
                 color = Palette.textSecondary,
@@ -2570,12 +2565,12 @@ private fun HrvSourceValue(
     Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(Metrics.space4)) {
         Overline(label, color = Palette.textTertiary)
         Text(
-            value?.let { "${it.roundToInt()} ms" } ?: "—",
+            value?.let { uiString(R.string.today_driver_value_ms, it.roundToInt()) } ?: "—",
             style = NoopType.metricInline,
             color = if (value != null) tint else Palette.textTertiary,
         )
         Text(
-            day?.let(::vitalReadingDateLabel) ?: "No computed night",
+            day?.let(::vitalReadingDateLabel) ?: uiString(R.string.oura_hrv_no_night),
             style = NoopType.caption,
             color = Palette.textTertiary,
         )
@@ -2594,9 +2589,9 @@ private fun HrvComparisonTable(
     val noopByDay = noopReadings.associateBy { it.day }
     NoopCard {
         Column(verticalArrangement = Arrangement.spacedBy(Metrics.space10)) {
-            Overline("HRV history")
+            Overline(uiString(R.string.oura_hrv_history))
             Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                Text("Date", style = NoopType.footnote, color = Palette.textSecondary, modifier = Modifier.weight(1f))
+                Text(uiString(R.string.l10n_health_screen_date_eb9a4bc1), style = NoopType.footnote, color = Palette.textSecondary, modifier = Modifier.weight(1f))
                 Text(
                     "NOOP",
                     style = NoopType.footnote,
@@ -2605,14 +2600,14 @@ private fun HrvComparisonTable(
                     modifier = Modifier.weight(0.8f),
                 )
                 Text(
-                    "Oura",
+                    uiString(R.string.today_source_oura),
                     style = NoopType.footnote,
                     color = Palette.textSecondary,
                     textAlign = TextAlign.End,
                     modifier = Modifier.weight(0.8f),
                 )
                 Text(
-                    "Buckets",
+                    uiString(R.string.oura_hrv_samples),
                     style = NoopType.footnote,
                     color = Palette.textSecondary,
                     textAlign = TextAlign.End,
@@ -2629,14 +2624,14 @@ private fun HrvComparisonTable(
                         modifier = Modifier.weight(1f),
                     )
                     Text(
-                        noop?.let { "${it.value.roundToInt()} ms" } ?: "—",
+                        noop?.let { uiString(R.string.today_driver_value_ms, it.value.roundToInt()) } ?: "—",
                         style = NoopType.bodyNumber,
                         color = if (noop != null) Palette.metricPurple else Palette.textTertiary,
                         textAlign = TextAlign.End,
                         modifier = Modifier.weight(0.8f),
                     )
                     Text(
-                        "${reading.valueMs.roundToInt()} ms",
+                        uiString(R.string.today_driver_value_ms, reading.valueMs.roundToInt()),
                         style = NoopType.bodyNumber,
                         color = Palette.metricCyan,
                         textAlign = TextAlign.End,
@@ -2660,8 +2655,7 @@ private fun HrvComparisonTable(
                 }
             }
             Text(
-                "Buckets are Oura's five-minute resting measurements. NOOP values use the matching " +
-                    "stored R-R intervals; — means there were not enough clean intervals.",
+                uiString(R.string.oura_hrv_table_note),
                 style = NoopType.footnote,
                 color = Palette.textTertiary,
             )

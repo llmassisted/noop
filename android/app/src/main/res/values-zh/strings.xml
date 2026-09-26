@@ -2791,4 +2791,19 @@
     <string name="data_sources_whoop_live_subtitle">通过 Bluetooth 直接连接手环：无需 WHOOP 应用，也无需云端。手环还可以将心率作为标准 Bluetooth 传感器进行广播。</string>
     <string name="data_sources_band_broadcast_description">通过 Bluetooth 将手环自身的实时心率广播给 Garmin、Zwift 或健身器材。</string>
     <string name="whoop4_direct_broadcast_explainer">WHOOP 4.0 可以直接广播心率。打开“数据来源”，启用“从手环广播心率”，即可连接 Zwift、Peloton、Garmin 或健身器材。需要时也可以使用“从此手机广播心率”。</string>
+
+    <!-- Oura native and NOOP HRV comparison -->
+    <string name="oura_hrv_latest">最新可用数据</string>
+    <string name="oura_hrv_computed">NOOP 计算值</string>
+    <string name="oura_hrv_no_night">暂无夜间计算结果</string>
+    <string name="oura_hrv_samples">样本</string>
+    <string name="oura_hrv_sources">HRV 数据来源</string>
+    <string name="oura_hrv_history">HRV 历史</string>
+    <string name="oura_hrv_calibrating">NOOP HRV 仍在校准</string>
+    <string name="oura_hrv_loading">正在加载 Oura HRV 历史。</string>
+    <string name="oura_hrv_rest_available">上方显示了同一静息时段的对比。夜间趋势需要先检测到睡眠。</string>
+    <string name="oura_hrv_pairing">正在完成配对</string>
+    <string name="oura_hrv_resting_detail">NOOP 根据同一静息时段计算 HRV。检测到睡眠后，该结果才会计入 Charge。Oura 取 %1$d 个五分钟测量值的平均值。</string>
+    <string name="oura_hrv_nightly_detail">NOOP 根据已保存的心搏间期计算用于 Charge 的 HRV。Oura 取 %1$d 个五分钟测量值的平均值。</string>
+    <string name="oura_hrv_table_note">每个 Oura 样本覆盖五分钟静息时段。NOOP 使用对应的心搏间期。— 表示有效数据不足。</string>
 </resources>

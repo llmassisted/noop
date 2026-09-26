@@ -23,14 +23,14 @@ class OuraRestingWindowsTest {
         assertEquals(1, all.size)
         assertEquals(8, all.single().bucketCount)
         assertEquals(40L * 60L, all.single().durationSeconds)
-        assertTrue(OuraRestingWindows.sleepCandidates(events).isEmpty())
+        assertTrue(OuraRestingWindows.windows(events).filter(OuraRestingWindows::isSleepCandidate).isEmpty())
     }
 
     @Test
     fun `long continuous late sleep becomes a candidate`() {
         val events = (0 until 105).map { event(30_000L + it * 300L, hrv = 42) }
 
-        val candidate = OuraRestingWindows.sleepCandidates(events).single()
+        val candidate = OuraRestingWindows.windows(events).filter(OuraRestingWindows::isSleepCandidate).single()
 
         assertEquals(105, candidate.bucketCount)
         assertEquals(8L * 60L * 60L + 45L * 60L, candidate.durationSeconds)
@@ -52,6 +52,6 @@ class OuraRestingWindowsTest {
         val events = (0 until 18).map { event(20_000L + it * 15L * 60L) }
 
         assertEquals(1, OuraRestingWindows.windows(events).size)
-        assertTrue(OuraRestingWindows.sleepCandidates(events).isEmpty())
+        assertTrue(OuraRestingWindows.windows(events).filter(OuraRestingWindows::isSleepCandidate).isEmpty())
     }
 }

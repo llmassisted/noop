@@ -2849,4 +2849,19 @@
     <string name="data_sources_whoop_live_subtitle">Pairs directly with your strap over Bluetooth: no WHOOP app, no cloud. The strap can also advertise its heart rate as a standard Bluetooth sensor.</string>
     <string name="data_sources_band_broadcast_description">Broadcasts the strap\'s own live heart rate over Bluetooth for Garmin, Zwift or gym equipment.</string>
     <string name="whoop4_direct_broadcast_explainer">Your WHOOP 4.0 can broadcast heart rate directly. Open Data Sources and use “Broadcast heart rate from the strap” for Zwift, Peloton, Garmin or gym equipment. You can alternatively use “Broadcast HR from this phone” when needed.</string>
+
+    <!-- Oura native and NOOP HRV comparison -->
+    <string name="oura_hrv_latest">Latest available</string>
+    <string name="oura_hrv_computed">NOOP calculated</string>
+    <string name="oura_hrv_no_night">No calculated night</string>
+    <string name="oura_hrv_samples">Samples</string>
+    <string name="oura_hrv_sources">HRV sources</string>
+    <string name="oura_hrv_history">HRV history</string>
+    <string name="oura_hrv_calibrating">NOOP HRV is still calibrating</string>
+    <string name="oura_hrv_loading">Loading Oura HRV history.</string>
+    <string name="oura_hrv_rest_available">The resting-window comparison is shown above. The nightly trend needs detected sleep.</string>
+    <string name="oura_hrv_pairing">Finishing pairing</string>
+    <string name="oura_hrv_resting_detail">NOOP calculates HRV from the same resting window. It does not affect Charge until sleep is detected. Oura averages %1$d five-minute measurements.</string>
+    <string name="oura_hrv_nightly_detail">NOOP calculates HRV from stored beat intervals for Charge. Oura averages %1$d five-minute measurements.</string>
+    <string name="oura_hrv_table_note">Each Oura sample covers five minutes at rest. NOOP uses matching beat intervals. — means insufficient clean data.</string>
 </resources>

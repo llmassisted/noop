@@ -2819,4 +2819,19 @@
     <string name="data_sources_whoop_live_subtitle">S\'associe directement à votre bracelet par Bluetooth : pas d\'app WHOOP, pas de cloud. Le bracelet peut aussi annoncer sa fréquence cardiaque comme capteur Bluetooth standard.</string>
     <string name="data_sources_band_broadcast_description">Diffuse en Bluetooth la fréquence cardiaque en direct propre au bracelet pour Garmin, Zwift ou les équipements de sport.</string>
     <string name="whoop4_direct_broadcast_explainer">Votre WHOOP 4.0 peut diffuser directement la fréquence cardiaque. Ouvrez Sources de données et utilisez « Diffuser la fréquence cardiaque du bracelet » pour Zwift, Peloton, Garmin ou les équipements de sport. Vous pouvez aussi utiliser « Diffuser la FC depuis ce téléphone » si nécessaire.</string>
+
+    <!-- Oura native and NOOP HRV comparison -->
+    <string name="oura_hrv_latest">Dernières valeurs disponibles</string>
+    <string name="oura_hrv_computed">Calculé par NOOP</string>
+    <string name="oura_hrv_no_night">Aucune nuit calculée</string>
+    <string name="oura_hrv_samples">Mesures</string>
+    <string name="oura_hrv_sources">Sources de VFC</string>
+    <string name="oura_hrv_history">Historique de VFC</string>
+    <string name="oura_hrv_calibrating">La VFC NOOP est encore en cours de calibration</string>
+    <string name="oura_hrv_loading">Chargement de l’historique de VFC Oura.</string>
+    <string name="oura_hrv_rest_available">La comparaison de la période de repos apparaît ci-dessus. La tendance nocturne nécessite du sommeil détecté.</string>
+    <string name="oura_hrv_pairing">Finalisation de l’appairage</string>
+    <string name="oura_hrv_resting_detail">NOOP calcule la VFC sur la même période de repos. Elle ne contribue à Charge que lorsque du sommeil est détecté. Oura fait la moyenne de %1$d mesures de cinq minutes.</string>
+    <string name="oura_hrv_nightly_detail">NOOP calcule la VFC pour Charge à partir des intervalles entre battements enregistrés. Oura fait la moyenne de %1$d mesures de cinq minutes.</string>
+    <string name="oura_hrv_table_note">Chaque mesure Oura couvre cinq minutes de repos. NOOP utilise les intervalles entre battements correspondants. — indique un manque de données valides.</string>
 </resources>

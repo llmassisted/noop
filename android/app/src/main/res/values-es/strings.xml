@@ -2820,4 +2820,19 @@
     <string name="data_sources_whoop_live_subtitle">Se empareja directamente con tu pulsera por Bluetooth: sin app de WHOOP, sin nube. La pulsera también puede anunciar su frecuencia cardíaca como un sensor Bluetooth estándar.</string>
     <string name="data_sources_band_broadcast_description">Difunde por Bluetooth la frecuencia cardíaca en vivo de la propia pulsera para Garmin, Zwift o equipos de gimnasio.</string>
     <string name="whoop4_direct_broadcast_explainer">Tu WHOOP 4.0 puede transmitir la frecuencia cardíaca directamente. Abre Fuentes de datos y usa «Transmitir frecuencia cardíaca desde la pulsera» para Zwift, Peloton, Garmin o equipos de gimnasio. También puedes usar «Transmitir FC desde este teléfono» cuando sea necesario.</string>
+
+    <!-- Oura native and NOOP HRV comparison -->
+    <string name="oura_hrv_latest">Últimos datos disponibles</string>
+    <string name="oura_hrv_computed">Calculado por NOOP</string>
+    <string name="oura_hrv_no_night">Ninguna noche calculada</string>
+    <string name="oura_hrv_samples">Muestras</string>
+    <string name="oura_hrv_sources">Fuentes de VFC</string>
+    <string name="oura_hrv_history">Historial de VFC</string>
+    <string name="oura_hrv_calibrating">La VFC de NOOP aún se está calibrando</string>
+    <string name="oura_hrv_loading">Cargando el historial de VFC de Oura.</string>
+    <string name="oura_hrv_rest_available">La comparación del periodo de reposo aparece arriba. La tendencia nocturna requiere sueño detectado.</string>
+    <string name="oura_hrv_pairing">Finalizando el emparejamiento</string>
+    <string name="oura_hrv_resting_detail">NOOP calcula la VFC del mismo periodo de reposo. No afecta a Charge hasta que se detecta sueño. Oura promedia %1$d mediciones de cinco minutos.</string>
+    <string name="oura_hrv_nightly_detail">NOOP calcula la VFC para Charge a partir de los intervalos entre latidos almacenados. Oura promedia %1$d mediciones de cinco minutos.</string>
+    <string name="oura_hrv_table_note">Cada muestra de Oura abarca cinco minutos de reposo. NOOP usa los intervalos entre latidos correspondientes. — indica datos válidos insuficientes.</string>
 </resources>

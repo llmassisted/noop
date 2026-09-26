@@ -2713,4 +2713,19 @@
     <string name="data_sources_whoop_live_subtitle">Подключается к браслету напрямую по Bluetooth: без приложения WHOOP и без облака. Браслет также может передавать пульс как стандартный Bluetooth-датчик.</string>
     <string name="data_sources_band_broadcast_description">Передаёт собственный пульс браслета в реальном времени по Bluetooth для Garmin, Zwift или тренажёров.</string>
     <string name="whoop4_direct_broadcast_explainer">WHOOP 4.0 может передавать пульс напрямую. Откройте «Источники данных» и включите «Транслировать пульс с браслета» для Zwift, Peloton, Garmin или тренажёров. При необходимости можно использовать «Передавать пульс с этого телефона».</string>
+
+    <!-- Oura native and NOOP HRV comparison -->
+    <string name="oura_hrv_latest">Последние доступные данные</string>
+    <string name="oura_hrv_computed">Рассчитано NOOP</string>
+    <string name="oura_hrv_no_night">Нет расчёта за ночь</string>
+    <string name="oura_hrv_samples">Измерения</string>
+    <string name="oura_hrv_sources">Источники ВСР</string>
+    <string name="oura_hrv_history">История ВСР</string>
+    <string name="oura_hrv_calibrating">Калибровка ВСР NOOP ещё продолжается</string>
+    <string name="oura_hrv_loading">Загрузка истории ВСР Oura.</string>
+    <string name="oura_hrv_rest_available">Сравнение за период покоя показано выше. Для ночного тренда нужен обнаруженный сон.</string>
+    <string name="oura_hrv_pairing">Завершение сопряжения</string>
+    <string name="oura_hrv_resting_detail">NOOP рассчитывает ВСР за тот же период покоя. Результат влияет на Charge только после обнаружения сна. Oura усредняет пятиминутные измерения; их количество: %1$d.</string>
+    <string name="oura_hrv_nightly_detail">NOOP рассчитывает ВСР для Charge по сохранённым интервалам между ударами сердца. Oura усредняет пятиминутные измерения; их количество: %1$d.</string>
+    <string name="oura_hrv_table_note">Каждое измерение Oura охватывает пять минут покоя. NOOP использует соответствующие интервалы между ударами сердца. — означает, что достоверных данных недостаточно.</string>
 </resources>

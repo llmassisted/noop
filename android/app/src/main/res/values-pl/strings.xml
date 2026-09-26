@@ -2834,4 +2834,19 @@
     <string name="data_sources_whoop_live_subtitle">Łączy się bezpośrednio z paskiem przez Bluetooth: bez aplikacji WHOOP i bez chmury. Pasek może też nadawać tętno jako standardowy czujnik Bluetooth.</string>
     <string name="data_sources_band_broadcast_description">Transmituje własne tętno paska na żywo przez Bluetooth do Garmin, Zwift lub sprzętu na siłowni.</string>
     <string name="whoop4_direct_broadcast_explainer">WHOOP 4.0 może nadawać tętno bezpośrednio. Otwórz Źródła danych i użyj opcji „Transmituj tętno z opaski” dla Zwift, Peloton, Garmin lub sprzętu na siłowni. W razie potrzeby możesz też użyć opcji „Transmituj tętno z tego telefonu”.</string>
+
+    <!-- Oura native and NOOP HRV comparison -->
+    <string name="oura_hrv_latest">Najnowsze dostępne dane</string>
+    <string name="oura_hrv_computed">Obliczone przez NOOP</string>
+    <string name="oura_hrv_no_night">Brak obliczeń dla nocy</string>
+    <string name="oura_hrv_samples">Pomiary</string>
+    <string name="oura_hrv_sources">Źródła HRV</string>
+    <string name="oura_hrv_history">Historia HRV</string>
+    <string name="oura_hrv_calibrating">Kalibracja HRV w NOOP nadal trwa</string>
+    <string name="oura_hrv_loading">Wczytywanie historii HRV Oura.</string>
+    <string name="oura_hrv_rest_available">Porównanie okresu odpoczynku jest widoczne powyżej. Trend nocny wymaga wykrytego snu.</string>
+    <string name="oura_hrv_pairing">Kończenie parowania</string>
+    <string name="oura_hrv_resting_detail">NOOP oblicza HRV dla tego samego okresu odpoczynku. Wynik wpływa na Charge dopiero po wykryciu snu. Oura oblicza średnią z pomiarów pięciominutowych; ich liczba: %1$d.</string>
+    <string name="oura_hrv_nightly_detail">NOOP oblicza HRV dla Charge z zapisanych odstępów między uderzeniami serca. Oura oblicza średnią z pomiarów pięciominutowych; ich liczba: %1$d.</string>
+    <string name="oura_hrv_table_note">Każdy pomiar Oura obejmuje pięć minut odpoczynku. NOOP używa odpowiadających mu odstępów między uderzeniami serca. — oznacza za mało poprawnych danych.</string>
 </resources>

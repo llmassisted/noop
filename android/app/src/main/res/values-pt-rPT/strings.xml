@@ -2812,4 +2812,19 @@
     <string name="data_sources_whoop_live_subtitle">Emparelha diretamente com a tua bracelete via Bluetooth: sem aplicação WHOOP, sem cloud. A bracelete também pode anunciar a frequência cardíaca como um sensor Bluetooth padrão.</string>
     <string name="data_sources_band_broadcast_description">Transmite a frequência cardíaca em direto da bracelete por Bluetooth para Garmin, Zwift ou equipamento de ginásio.</string>
     <string name="whoop4_direct_broadcast_explainer">O teu WHOOP 4.0 pode transmitir a frequência cardíaca diretamente. Abre Fontes de dados e utiliza «Transmitir frequência cardíaca da bracelete» para Zwift, Peloton, Garmin ou equipamento de ginásio. Em alternativa, podes utilizar «Transmitir FC deste telemóvel» quando necessário.</string>
+
+    <!-- Oura native and NOOP HRV comparison -->
+    <string name="oura_hrv_latest">Últimos valores disponíveis</string>
+    <string name="oura_hrv_computed">Calculado pelo NOOP</string>
+    <string name="oura_hrv_no_night">Nenhuma noite calculada</string>
+    <string name="oura_hrv_samples">Amostras</string>
+    <string name="oura_hrv_sources">Fontes de VFC</string>
+    <string name="oura_hrv_history">Histórico de VFC</string>
+    <string name="oura_hrv_calibrating">A VFC do NOOP ainda está em calibração</string>
+    <string name="oura_hrv_loading">A carregar o histórico de VFC do Oura.</string>
+    <string name="oura_hrv_rest_available">A comparação do período de repouso aparece acima. A tendência noturna necessita de sono detetado.</string>
+    <string name="oura_hrv_pairing">A concluir o emparelhamento</string>
+    <string name="oura_hrv_resting_detail">O NOOP calcula a VFC para o mesmo período de repouso. Não afeta o Charge até ser detetado sono. O Oura calcula a média de %1$d medições de cinco minutos.</string>
+    <string name="oura_hrv_nightly_detail">O NOOP calcula a VFC para o Charge a partir dos intervalos entre batimentos guardados. O Oura calcula a média de %1$d medições de cinco minutos.</string>
+    <string name="oura_hrv_table_note">Cada amostra do Oura abrange cinco minutos em repouso. O NOOP utiliza os intervalos entre batimentos correspondentes. — indica dados válidos insuficientes.</string>
 </resources>
