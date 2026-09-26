@@ -2839,4 +2839,15 @@
     <string name="oura_spo2_mode_send">Enviar</string>
     <string name="oura_spo2_mode_sent">Enviado. Consulte o registo da pulseira para ver a resposta do anel.</string>
     <string name="oura_spo2_mode_not_connected">Anel não ligado. Aguarde a ligação e tente novamente.</string>
+
+    <!-- Oura activity estimate (Health card) -->
+    <string name="oura_activity_title">Atividade</string>
+    <string name="oura_activity_overline">Estimativa Oura</string>
+    <string name="oura_activity_active_min">Min ativos</string>
+    <string name="oura_activity_met_min">min MET</string>
+    <string name="oura_activity_kcal">kcal ativas</string>
+    <string name="oura_activity_coverage">Hoje, a partir de %1$d min de dados do anel.</string>
+    <string name="oura_activity_none_today">Ainda não há dados de atividade do anel hoje.</string>
+    <string name="oura_activity_week">Últimos 7 dias</string>
+    <string name="oura_activity_note">Estimado a partir da intensidade de movimento do anel (MET). Minutos com 3+ MET contam como ativos; minutos que o anel não registou contam como inativos. Não é uma contagem de passos nem é usado nas pontuações.</string>
 </resources>

@@ -2847,4 +2847,15 @@
     <string name="oura_spo2_mode_send">Enviar</string>
     <string name="oura_spo2_mode_sent">Enviado. Consulta el registro de la banda para ver la respuesta del anillo.</string>
     <string name="oura_spo2_mode_not_connected">Anillo no conectado. Espera a que se conecte e inténtalo de nuevo.</string>
+
+    <!-- Oura activity estimate (Health card) -->
+    <string name="oura_activity_title">Actividad</string>
+    <string name="oura_activity_overline">Estimación de Oura</string>
+    <string name="oura_activity_active_min">Min activos</string>
+    <string name="oura_activity_met_min">min MET</string>
+    <string name="oura_activity_kcal">kcal activas</string>
+    <string name="oura_activity_coverage">Hoy, a partir de %1$d min de datos del anillo.</string>
+    <string name="oura_activity_none_today">Aún no hay datos de actividad del anillo hoy.</string>
+    <string name="oura_activity_week">Últimos 7 días</string>
+    <string name="oura_activity_note">Estimado a partir de la intensidad de movimiento del anillo (MET). Los minutos con 3+ MET cuentan como activos; los minutos que el anillo no registró cuentan como inactivos. No es un recuento de pasos ni se usa en las puntuaciones.</string>
 </resources>

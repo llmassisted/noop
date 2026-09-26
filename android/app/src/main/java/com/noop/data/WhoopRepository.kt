@@ -1132,6 +1132,12 @@ class WhoopRepository(
         pushCount = row.pushCount, easeCount = row.easeCount, hrSource = row.hrSource,
     )
 
+    /** Batch-insert event rows (insert-or-ignore on the (deviceId, ts, kind) PK). Used by the one-time
+     *  Oura MET sidecar import, [OuraMetBackfill]. */
+    suspend fun insertEventRows(rows: List<EventRow>) {
+        if (rows.isNotEmpty()) dao.insertEvents(rows)
+    }
+
     /** #1410: append one app-level event (e.g. APP_VERSION_CHANGED) onto the event table. */
     suspend fun recordEvent(deviceId: String, ts: Long, kind: String, payloadJSON: String) {
         dao.insertEvents(listOf(EventRow(deviceId, ts, kind, payloadJSON)))

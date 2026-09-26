@@ -2818,4 +2818,15 @@
     <string name="oura_spo2_mode_send">发送</string>
     <string name="oura_spo2_mode_sent">已发送。请在手环日志中查看戒指的回复。</string>
     <string name="oura_spo2_mode_not_connected">戒指未连接。请等待连接后重试。</string>
+
+    <!-- Oura activity estimate (Health card) -->
+    <string name="oura_activity_title">活动</string>
+    <string name="oura_activity_overline">Oura 估算</string>
+    <string name="oura_activity_active_min">活动分钟</string>
+    <string name="oura_activity_met_min">MET 分钟</string>
+    <string name="oura_activity_kcal">活动千卡</string>
+    <string name="oura_activity_coverage">今天，基于 %1$d 分钟的戒指数据。</string>
+    <string name="oura_activity_none_today">今天还没有来自戒指的活动数据。</string>
+    <string name="oura_activity_week">最近 7 天</string>
+    <string name="oura_activity_note">根据戒指的运动强度（MET）估算。3 MET 及以上的分钟计为活动；戒指未记录的分钟计为不活动。这不是步数，也不用于评分。</string>
 </resources>

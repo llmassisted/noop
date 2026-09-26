@@ -2629,12 +2629,12 @@ class OuraLiveSource(
                 }
             }
             is OuraEvent.ActivityInfo -> {
-                // INVESTIGATION ONLY (0x50 activity/MET, Tier B - a plausible third-party formula, NOT
-                // ground-truth-validated; see OuraActivityInfo). Logged with the DECODED state/MET values
-                // every time (not once-per-kind): this is the tag under active plausibility evaluation, so
-                // every real capture is evidence. Never persisted, never scored, and NEVER converted into
-                // steps (MET is not a step count; OuraStreamMapping drops ActivityInfo unconditionally).
+                // 0x50 activity/MET, Tier B - a plausible third-party formula, NOT ground-truth-validated;
+                // see OuraActivityInfo. Logged with the DECODED state/MET values every time, and persisted
+                // as an OURA_MET estimate row (OuraStreamMapping) that the Health activity card aggregates.
+                // Never scored, and NEVER converted into steps (MET is not a step count, s6.13).
                 log("Oura: activity (Tier-B) state=${e.value.state} met=${e.value.met}")
+                enqueueAnchoredOrPark(e, e.value.ringTimestamp, d)
                 // Append the raw record to the Tier-B research corpus (anchored records only; deduped by
                 // ring-time in the writer). Diagnostic sidecar - never persisted to the DB, never scored.
                 d.unixSeconds(forRingTimestamp = e.value.ringTimestamp)?.let { utc ->

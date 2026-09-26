@@ -211,6 +211,10 @@ fun HealthScreen(
             item { Spacer(Modifier.height(Metrics.selectorTopUp)) }
             item { FitnessAgeSection(vm = vm, days = days, profile = profile, onOpenSettings = onOpenSettings) }
             item { VitalitySection(vm = vm, days = days, profile = profile) }
+            // OURA ACTIVITY — a Tier-B ESTIMATE from the ring's own MET stream (0x50): active minutes,
+            // MET-minutes and estimated active kcal. Hidden unless the active device has OURA_MET rows, so a
+            // WHOOP-only install never sees it. Never scored, never a step count.
+            item { OuraActivitySection(vm = vm, days = days, profile = profile) }
             // SKIN TEMPERATURE (v5 pillar) — Cycle awareness (opt-in), Body clock + an illness heads-up,
             // each from a pure engine RESULT the ViewModel publishes. A section of Health, never its own
             // destination (umbrella §2.4). Non-clinical observations about your own numbers.
@@ -833,6 +837,103 @@ private fun VitalitySection(vm: AppViewModel, days: List<DailyMetric>, profile: 
         }
     }
 }
+
+/**
+ * Oura activity ESTIMATE from the ring's MET stream (0x50, [com.noop.data.OuraStreamMapping.EVENT_MET]):
+ * today's active minutes, MET-minutes and estimated active kcal, plus the last 7 days. Renders nothing
+ * until the active device has OURA_MET rows. Labelled as an estimate throughout — the MET decode is
+ * third-party (Tier B), the ring's logging gaps undercount, and none of it is scored or a step count.
+ */
+@Composable
+private fun OuraActivitySection(vm: AppViewModel, days: List<DailyMetric>, profile: ProfileStore) {
+    var activity by remember(vm.activeStrapId) { mutableStateOf<List<OuraActivityDay>>(emptyList()) }
+    LaunchedEffect(days, vm.activeStrapId) {
+        val zone = ZoneId.systemDefault()
+        val today = LocalDate.now(zone)
+        val firstDay = today.minusDays(OURA_ACTIVITY_DAYS - 1L)
+        // Samples lay BACKWARD from each row's time, so read one record span past tomorrow's midnight.
+        val from = firstDay.atStartOfDay(zone).toEpochSecond()
+        val to = today.plusDays(1).atStartOfDay(zone).toEpochSecond() + OURA_MET_RECORD_SPAN_S
+        val rows = runCatching {
+            vm.repo.eventsByKind(
+                deviceId = vm.activeStrapId,
+                kind = com.noop.data.OuraStreamMapping.EVENT_MET,
+                from = from,
+                to = to,
+                limit = OURA_MET_EVENT_LIMIT,
+            )
+        }.getOrDefault(emptyList())
+        activity = withContext(Dispatchers.Default) {
+            OuraActivityDays.aggregate(rows, zone, profile.weightKg)
+                .filter { it.day >= firstDay.toString() && it.day <= today.toString() }
+        }
+    }
+    if (activity.isEmpty()) return
+    val todayKey = LocalDate.now().toString()
+    val todayEstimate = activity.firstOrNull { it.day == todayKey }?.estimate
+    Column(verticalArrangement = Arrangement.spacedBy(Metrics.gap)) {
+        SectionHeader(uiString(R.string.oura_activity_title), overline = uiString(R.string.oura_activity_overline))
+        NoopCard {
+            Column(verticalArrangement = Arrangement.spacedBy(Metrics.space12)) {
+                Row(horizontalArrangement = Arrangement.spacedBy(Metrics.space12)) {
+                    OuraActivityStat(
+                        modifier = Modifier.weight(1f),
+                        label = uiString(R.string.oura_activity_active_min),
+                        value = todayEstimate?.activeMinutes?.roundToInt()?.toString() ?: "—",
+                        tint = Palette.metricCyan,
+                    )
+                    OuraActivityStat(
+                        modifier = Modifier.weight(1f),
+                        label = uiString(R.string.oura_activity_met_min),
+                        value = todayEstimate?.metMinutes?.roundToInt()?.toString() ?: "—",
+                        tint = Palette.metricPurple,
+                    )
+                    OuraActivityStat(
+                        modifier = Modifier.weight(1f),
+                        label = uiString(R.string.oura_activity_kcal),
+                        value = todayEstimate?.estActiveKcal?.roundToInt()?.toString() ?: "—",
+                        tint = Palette.accent,
+                    )
+                }
+                Text(
+                    if (todayEstimate != null) {
+                        uiString(R.string.oura_activity_coverage, todayEstimate.sampleCount)
+                    } else {
+                        uiString(R.string.oura_activity_none_today)
+                    },
+                    style = NoopType.footnote,
+                    color = Palette.textSecondary,
+                )
+                Overline(uiString(R.string.oura_activity_week))
+                Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    Text(uiString(R.string.l10n_health_screen_date_eb9a4bc1), style = NoopType.footnote, color = Palette.textSecondary, modifier = Modifier.weight(1f))
+                    Text(uiString(R.string.oura_activity_active_min), style = NoopType.footnote, color = Palette.textSecondary, textAlign = TextAlign.End, modifier = Modifier.weight(0.8f))
+                    Text(uiString(R.string.oura_activity_kcal), style = NoopType.footnote, color = Palette.textSecondary, textAlign = TextAlign.End, modifier = Modifier.weight(0.8f))
+                }
+                for (entry in activity.sortedByDescending { it.day }) {
+                    Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                        Text(vitalReadingDateLabel(entry.day), style = NoopType.bodyNumber, color = Palette.textPrimary, modifier = Modifier.weight(1f))
+                        Text(entry.estimate.activeMinutes.roundToInt().toString(), style = NoopType.bodyNumber, color = Palette.metricCyan, textAlign = TextAlign.End, modifier = Modifier.weight(0.8f))
+                        Text(entry.estimate.estActiveKcal?.roundToInt()?.toString() ?: "—", style = NoopType.bodyNumber, color = Palette.textPrimary, textAlign = TextAlign.End, modifier = Modifier.weight(0.8f))
+                    }
+                }
+                Text(uiString(R.string.oura_activity_note), style = NoopType.footnote, color = Palette.textTertiary)
+            }
+        }
+    }
+}
+
+@Composable
+private fun OuraActivityStat(modifier: Modifier, label: String, value: String, tint: androidx.compose.ui.graphics.Color) {
+    Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(Metrics.space4)) {
+        Overline(label, color = Palette.textTertiary)
+        Text(value, style = NoopType.metricInline, color = if (value != "—") tint else Palette.textTertiary)
+    }
+}
+
+private const val OURA_ACTIVITY_DAYS = 7
+private const val OURA_MET_RECORD_SPAN_S = 30L * 60L
+private const val OURA_MET_EVENT_LIMIT = 50_000
 
 @Composable
 private fun VitalityHero(

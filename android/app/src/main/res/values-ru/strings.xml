@@ -2740,4 +2740,15 @@
     <string name="oura_spo2_mode_send">Отправить</string>
     <string name="oura_spo2_mode_sent">Отправлено. Ответ кольца смотрите в журнале браслета.</string>
     <string name="oura_spo2_mode_not_connected">Кольцо не подключено. Дождитесь подключения и повторите попытку.</string>
+
+    <!-- Oura activity estimate (Health card) -->
+    <string name="oura_activity_title">Активность</string>
+    <string name="oura_activity_overline">Оценка Oura</string>
+    <string name="oura_activity_active_min">Активные мин</string>
+    <string name="oura_activity_met_min">MET-мин</string>
+    <string name="oura_activity_kcal">Активные ккал</string>
+    <string name="oura_activity_coverage">Сегодня, по %1$d мин данных кольца.</string>
+    <string name="oura_activity_none_today">Сегодня пока нет данных об активности с кольца.</string>
+    <string name="oura_activity_week">Последние 7 дней</string>
+    <string name="oura_activity_note">Оценка по интенсивности движения с кольца (MET). Минуты с 3+ MET считаются активными; минуты, не записанные кольцом, считаются неактивными. Это не количество шагов, и в оценках не используется.</string>
 </resources>

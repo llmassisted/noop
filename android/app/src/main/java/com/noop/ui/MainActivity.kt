@@ -718,6 +718,16 @@ object NoopPrefs {
         of(context).edit().putBoolean(KEY_OURA_NOTIFY_MASK_FULL, enabled).apply()
     }
 
+    /** Whether the one-time Oura MET sidecar import ([com.noop.data.OuraMetBackfill]) has completed. */
+    const val KEY_OURA_MET_BACKFILL_DONE = "noop.ouraMetBackfillDone.v1"
+
+    fun ouraMetBackfillDone(context: Context): Boolean =
+        of(context).getBoolean(KEY_OURA_MET_BACKFILL_DONE, false)
+
+    fun setOuraMetBackfillDone(context: Context) {
+        of(context).edit().putBoolean(KEY_OURA_MET_BACKFILL_DONE, true).apply()
+    }
+
     /** #1121: whether the opt-in "detailed capture" rolling strap-log file is on. Persisted so capture
      *  RESUMES after the process is killed (AppViewModel re-arms the BLE client from this on launch). */
     const val KEY_DETAILED_CAPTURE = "noop.detailedCapture"

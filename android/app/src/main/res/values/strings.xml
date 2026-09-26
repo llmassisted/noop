@@ -2876,4 +2876,15 @@
     <string name="oura_spo2_mode_send">Send</string>
     <string name="oura_spo2_mode_sent">Sent. Check the strap log for the ring\'s reply.</string>
     <string name="oura_spo2_mode_not_connected">Ring not connected. Wait for it to connect, then try again.</string>
+
+    <!-- Oura activity estimate (Health card) -->
+    <string name="oura_activity_title">Activity</string>
+    <string name="oura_activity_overline">Oura estimate</string>
+    <string name="oura_activity_active_min">Active min</string>
+    <string name="oura_activity_met_min">MET-min</string>
+    <string name="oura_activity_kcal">Active kcal</string>
+    <string name="oura_activity_coverage">Today, from %1$d min of ring data.</string>
+    <string name="oura_activity_none_today">No ring activity data yet today.</string>
+    <string name="oura_activity_week">Last 7 days</string>
+    <string name="oura_activity_note">Estimated from the ring\'s movement intensity (MET). Minutes at 3+ MET count as active; minutes the ring did not log count as inactive. Not a step count and not used in scores.</string>
 </resources>

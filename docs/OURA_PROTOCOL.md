@@ -984,7 +984,12 @@ edit of the ring's tag.
     cadence, not a decode drop) - so any daily active-minute total derived from it UNDERCOUNTS. This
     corroborates the "plausible, tracks activity" read while keeping it Tier B: still not a step count, still
     not ground-truth-validated against Oura's own numbers, still never scored. NOOP has no MET field in its
-    HR/strain data model, so `0x50` remains a diagnostic JSONL corpus (`oura-activity-<id>.jsonl`); the ring's
+    HR/strain data model, so `0x50` remains a diagnostic JSONL corpus (`oura-activity-<id>.jsonl`) on Swift;
+    **Android (fork)** additionally keeps each anchored record as an `OURA_MET` event row (`met_x10` exact tenths,
+    `sec_per_sample`, `state`), imports the pre-existing sidecar once into the same rows, and shows a Health-card
+    ESTIMATE (active minutes at ≥ 3 MET, MET-minutes, above-resting kcal via `OuraActivityEstimator`) — samples laid
+    backward from the record time (within-record order unpinned: an inter-record continuity test on 95 live record
+    pairs could not separate the two orders, because records are usually not contiguous), never scored; the ring's
     path into NOOP activity is HR (live push + banked IBI, §6.4), never MET. open_oura consumes this same
     `0x50` `met` as one input to its activity classifier (`activity_model.rs`). [open_oura-act]
   - **✅ `0x50` MET TRACKS A VARYING INPUT — the strongest validation to date (NOOP, 2026-08-02, live Gen 3).**

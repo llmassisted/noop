@@ -2861,4 +2861,15 @@
     <string name="oura_spo2_mode_send">Wyślij</string>
     <string name="oura_spo2_mode_sent">Wysłano. Odpowiedź pierścienia znajdziesz w logu opaski.</string>
     <string name="oura_spo2_mode_not_connected">Pierścień nie jest połączony. Poczekaj na połączenie i spróbuj ponownie.</string>
+
+    <!-- Oura activity estimate (Health card) -->
+    <string name="oura_activity_title">Aktywność</string>
+    <string name="oura_activity_overline">Szacunek Oura</string>
+    <string name="oura_activity_active_min">Aktywne min</string>
+    <string name="oura_activity_met_min">min MET</string>
+    <string name="oura_activity_kcal">Aktywne kcal</string>
+    <string name="oura_activity_coverage">Dziś, na podstawie %1$d min danych z pierścienia.</string>
+    <string name="oura_activity_none_today">Brak dziś danych o aktywności z pierścienia.</string>
+    <string name="oura_activity_week">Ostatnie 7 dni</string>
+    <string name="oura_activity_note">Szacowane na podstawie intensywności ruchu z pierścienia (MET). Minuty z 3+ MET liczą się jako aktywne; minuty niezarejestrowane przez pierścień liczą się jako nieaktywne. To nie jest liczba kroków i nie wpływa na wyniki.</string>
 </resources>

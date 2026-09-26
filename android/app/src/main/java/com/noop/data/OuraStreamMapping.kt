@@ -43,6 +43,13 @@ object OuraStreamMapping {
     /** The event `kind` for a decoded 0x47 motion window (activity instrumentation). Must match Swift. */
     const val EVENT_MOTION = "OURA_MOTION"
 
+    /** The event `kind` for a decoded 0x50 activity/MET record (Tier-B activity ESTIMATE, never scored). */
+    const val EVENT_MET = "OURA_MET"
+
+    /** Assumed per-sample MET cadence (OURA_PROTOCOL.md s6.13: one sample per minute, re-confirmed by an
+     *  86-sample 86-minute walk). Stored on every row so a reader never has to assume it. */
+    const val MET_SECONDS_PER_SAMPLE = 60
+
     /**
      * Fold a batch of decoded [events] into a protocol [Streams] for one flush. [anchor] maps a
      * ring-clock timestamp to wall-clock unix seconds (null => drop the sample). Pure: no BLE, no DB,
@@ -216,9 +223,30 @@ object OuraStreamMapping {
                     out.events.add(WhoopEvent(ts = ts, kind = EVENT_MOTION, payload = payload))
                 }
 
-                // Motion / state / time-sync / rtc / debug / TierB / ActivityInfo / RealStepsFields never
-                // map onto a scored stream. In particular the 0x50 activity/MET decode (PR #960) NEVER
-                // mints a `steps` row: the formula is third-party and unvalidated (Tier B, OURA_PROTOCOL.md
+                is OuraEvent.ActivityInfo -> {
+                    // 0x50 activity record → one OURA_MET event at the record's anchored ts, carrying its
+                    // MET series VERBATIM as integer tenths (every decoded value is a multiple of 0.1, so
+                    // `met_x10` is exact where a Double list would carry binary noise). Tier B: the decode
+                    // formula is third-party, so this is an activity ESTIMATE input — surfaced labelled as
+                    // one, never scored, never a step count (s6.13). Which end of the record is the oldest
+                    // minute is not pinned, so a reader must treat within-record timing as ±the record span.
+                    val ts = anchor(ev.value.ringTimestamp) ?: continue
+                    out.events.add(
+                        WhoopEvent(
+                            ts = ts,
+                            kind = EVENT_MET,
+                            payload = linkedMapOf(
+                                "state" to ev.value.state,
+                                "sec_per_sample" to MET_SECONDS_PER_SAMPLE,
+                                "met_x10" to ev.value.met.map { Math.round(it * 10).toInt() },
+                            ),
+                        ),
+                    )
+                }
+
+                // Motion / state / time-sync / rtc / debug / TierB / RealStepsFields never map onto a
+                // scored stream (ActivityInfo is stored above as an OURA_MET estimate row, nothing more).
+                // In particular the 0x50 activity/MET decode (PR #960) NEVER mints a `steps` row: the formula is third-party and unvalidated (Tier B, OURA_PROTOCOL.md
                 // s6.13), and MET is not a step count - fabricating one would break the honest-data
                 // invariant and the per-source day-owner rules. Same discipline for 0x7E/0x7F real_steps
                 // (s6.13) - decoded, logged, never scored: ground truth showed no field is a step count,

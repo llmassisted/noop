@@ -2846,4 +2846,15 @@
     <string name="oura_spo2_mode_send">Envoyer</string>
     <string name="oura_spo2_mode_sent">Envoyé. Consultez le journal du bracelet pour la réponse de la bague.</string>
     <string name="oura_spo2_mode_not_connected">Bague non connectée. Attendez la connexion, puis réessayez.</string>
+
+    <!-- Oura activity estimate (Health card) -->
+    <string name="oura_activity_title">Activité</string>
+    <string name="oura_activity_overline">Estimation Oura</string>
+    <string name="oura_activity_active_min">Min actives</string>
+    <string name="oura_activity_met_min">min MET</string>
+    <string name="oura_activity_kcal">kcal actives</string>
+    <string name="oura_activity_coverage">Aujourd\'hui, d\'après %1$d min de données de la bague.</string>
+    <string name="oura_activity_none_today">Pas encore de données d\'activité de la bague aujourd\'hui.</string>
+    <string name="oura_activity_week">7 derniers jours</string>
+    <string name="oura_activity_note">Estimé à partir de l\'intensité de mouvement de la bague (MET). Les minutes à 3 MET ou plus comptent comme actives ; les minutes non enregistrées par la bague comptent comme inactives. Ce n\'est pas un nombre de pas et ce n\'est pas utilisé dans les scores.</string>
 </resources>

@@ -53,6 +53,7 @@ import com.noop.protocol.CommandNumber
 import com.noop.widget.WidgetSnapshot
 import com.noop.widget.WidgetSnapshotStore
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.delay
@@ -929,6 +930,23 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         // export can answer "what ran when". Idempotent — the stored last-seen version only advances
         // once the transition is recorded, so a background-only launch is caught on the next UI open.
         viewModelScope.launch { recordAppVersionChange() }
+        // One-time import of the Oura MET history that only ever reached the diagnostic activity sidecar
+        // (OuraMetBackfill). Waits for the ring's STABLE serial id — an address id (contains ':') is
+        // re-keyed away on serial adoption, and the Health card reads the active id — then marks itself done.
+        if (!NoopPrefs.ouraMetBackfillDone(appContext)) {
+            viewModelScope.launch(Dispatchers.IO) {
+                val id = activeReadDeviceId.first { it.startsWith("oura-") && !it.contains(':') }
+                val result = runCatching {
+                    com.noop.data.OuraMetBackfill.run(
+                        filesDir = appContext.filesDir,
+                        deviceId = id,
+                        insert = { repository.insertEventRows(it) },
+                        log = { StrapLogBuffer.append(it) },
+                    )
+                }
+                if (result.isSuccess) NoopPrefs.setOuraMetBackfillDone(appContext)
+            }
+        }
         // #1121: re-arm the opt-in detailed-capture rolling log on launch, so a capture the user started
         // keeps going across the process being killed (this phone class is not battery-exempt and Android
         // kills the background BLE overnight — the very window a battery capture needs to span).

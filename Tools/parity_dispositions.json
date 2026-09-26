@@ -320,6 +320,110 @@
       "identity_sha256": "c0190e47d1c92bead02bb9ee79ff344b057dd63c7fff4a63a47afb9d767737b2",
       "platform": "kotlin",
       "rationale": "Android-only decode of the ring's 2f 03 23 feature-mode verdict (OURA_PROTOCOL.md s7.5), so a Test Centre write logs accepted / NOT_SUPPORTED / NOT_AVAILABLE instead of being routed as a live-HR ack. Diagnostic only; never scored or stored."
+    },
+    {
+      "type": "platform_specific",
+      "kind": "add-unpaired-constant",
+      "identity": "kotlin\u0000android/app/src/main/java/com/noop/data/OuraMetBackfill.kt::DUMP_PREFIX",
+      "identity_sha256": "0d33b521f08ea26fcaa32bc593819f985d39504a1fbfc4a2f27e91e6abe906eb",
+      "platform": "kotlin",
+      "rationale": "Android-only one-time import of the fork's own on-device 0x50 activity sidecar (oura-activity-*.jsonl, written since #676) into the same OURA_MET rows the live path writes. The sidecar and its history exist only on this Android install."
+    },
+    {
+      "type": "platform_specific",
+      "kind": "add-unpaired-constant",
+      "identity": "kotlin\u0000android/app/src/main/java/com/noop/data/OuraMetBackfill.kt::INSERT_CHUNK",
+      "identity_sha256": "cedf18f01fdd69d11dcebb8f6d29736688934c2e8c859cf46323ff45955a6b48",
+      "platform": "kotlin",
+      "rationale": "Android-only one-time import of the fork's own on-device 0x50 activity sidecar (oura-activity-*.jsonl, written since #676) into the same OURA_MET rows the live path writes. The sidecar and its history exist only on this Android install."
+    },
+    {
+      "type": "platform_specific",
+      "kind": "add-unpaired-constant",
+      "identity": "kotlin\u0000android/app/src/main/java/com/noop/data/OuraStreamMapping.kt::EVENT_MET",
+      "identity_sha256": "3702073d2dab5b2c20b365dcfc773a06952a44b0d9f6ab436a7e417a5006316f",
+      "platform": "kotlin",
+      "rationale": "Android-only durable storage of the ring's 0x50 MET stream as OURA_MET estimate rows for the fork's Health activity card (OURA_PROTOCOL.md s6.13). Tier B: never scored, never a step count. The Swift app still logs 0x50 only; this fork ships Android."
+    },
+    {
+      "type": "platform_specific",
+      "kind": "add-unpaired-constant",
+      "identity": "kotlin\u0000android/app/src/main/java/com/noop/data/OuraStreamMapping.kt::MET_SECONDS_PER_SAMPLE",
+      "identity_sha256": "c703e4bb358a388a6843f197aef452e14ba58b7d83f2d5c3a257c6548e1de979",
+      "platform": "kotlin",
+      "rationale": "Android-only durable storage of the ring's 0x50 MET stream as OURA_MET estimate rows for the fork's Health activity card (OURA_PROTOCOL.md s6.13). Tier B: never scored, never a step count. The Swift app still logs 0x50 only; this fork ships Android."
+    },
+    {
+      "type": "platform_specific",
+      "kind": "add-unpaired-file",
+      "identity": "kotlin\u0000android/app/src/main/java/com/noop/data/OuraMetBackfill.kt",
+      "identity_sha256": "b24d18f0ca1e783afd71df69c23549a7764dd55b41d898788bb2753d22607d88",
+      "platform": "kotlin",
+      "rationale": "Android-only one-time import of the fork's own on-device 0x50 activity sidecar (oura-activity-*.jsonl, written since #676) into the same OURA_MET rows the live path writes. The sidecar and its history exist only on this Android install."
+    },
+    {
+      "type": "platform_specific",
+      "kind": "add-unpaired-file",
+      "identity": "kotlin\u0000android/app/src/main/java/com/noop/oura/ActivityEstimate.kt",
+      "identity_sha256": "cc6b55c5d4f6cb4bd87710c9ffd9f47553a66487736b91d93ae3631ecbab26a2",
+      "platform": "kotlin",
+      "rationale": "Kotlin twin of the Swift OuraActivityEstimator (Packages/OuraProtocol/.../ActivityEstimate.swift). Byte-identical output is pinned by OuraActivityEstimatorTest against the verbatim stdout of the Swift source compiled standalone over 300 generated inputs; the ledger cannot pair it by name because both platforms overload `estimate`."
+    },
+    {
+      "type": "platform_specific",
+      "kind": "add-unpaired-function",
+      "identity": "kotlin\u0000android/app/src/main/java/com/noop/data/OuraMetBackfill.kt::dumpFiles/1#1",
+      "identity_sha256": "94b7d9871f0ea80fc89e789c580a738ff62d3ddaee055de1b0528046ea03922f",
+      "platform": "kotlin",
+      "rationale": "Android-only one-time import of the fork's own on-device 0x50 activity sidecar (oura-activity-*.jsonl, written since #676) into the same OURA_MET rows the live path writes. The sidecar and its history exist only on this Android install."
+    },
+    {
+      "type": "platform_specific",
+      "kind": "add-unpaired-function",
+      "identity": "kotlin\u0000android/app/src/main/java/com/noop/data/OuraMetBackfill.kt::parseLine/1#1",
+      "identity_sha256": "7b3d9524e61591747a961e959d8cab70dacddca4776ad230a59f19ef4d9c74a8",
+      "platform": "kotlin",
+      "rationale": "Android-only one-time import of the fork's own on-device 0x50 activity sidecar (oura-activity-*.jsonl, written since #676) into the same OURA_MET rows the live path writes. The sidecar and its history exist only on this Android install."
+    },
+    {
+      "type": "platform_specific",
+      "kind": "add-unpaired-function",
+      "identity": "kotlin\u0000android/app/src/main/java/com/noop/data/OuraMetBackfill.kt::run/4#1",
+      "identity_sha256": "280ea8b630c60d20ade06884011493b7bda17a7c6b4f05dfc316f49e4929376a",
+      "platform": "kotlin",
+      "rationale": "Android-only one-time import of the fork's own on-device 0x50 activity sidecar (oura-activity-*.jsonl, written since #676) into the same OURA_MET rows the live path writes. The sidecar and its history exist only on this Android install."
+    },
+    {
+      "type": "platform_specific",
+      "kind": "add-unpaired-function",
+      "identity": "kotlin\u0000android/app/src/main/java/com/noop/data/WhoopRepository.kt::insertEventRows/1#1",
+      "identity_sha256": "4560439943fdcc1876d280dda92d98ec465793b0e397cc0782846de4b8b31aca",
+      "platform": "kotlin",
+      "rationale": "Android-only durable storage of the ring's 0x50 MET stream as OURA_MET estimate rows for the fork's Health activity card (OURA_PROTOCOL.md s6.13). Tier B: never scored, never a step count. The Swift app still logs 0x50 only; this fork ships Android."
+    },
+    {
+      "type": "platform_specific",
+      "kind": "add-unpaired-function",
+      "identity": "kotlin\u0000android/app/src/main/java/com/noop/oura/ActivityEstimate.kt::estimate/4#1",
+      "identity_sha256": "556604d859be90f3685dd20286061a71300d78e897c95ac41b2ba2d3c1dd1c6b",
+      "platform": "kotlin",
+      "rationale": "Kotlin twin of the Swift OuraActivityEstimator (Packages/OuraProtocol/.../ActivityEstimate.swift). Byte-identical output is pinned by OuraActivityEstimatorTest against the verbatim stdout of the Swift source compiled standalone over 300 generated inputs; the ledger cannot pair it by name because both platforms overload `estimate`."
+    },
+    {
+      "type": "platform_specific",
+      "kind": "add-unpaired-function",
+      "identity": "kotlin\u0000android/app/src/main/java/com/noop/oura/ActivityEstimate.kt::estimate/4#2",
+      "identity_sha256": "6a034dd744068988a1f985c43d89a163108db3e24aad686a8fef2fa2c488ca61",
+      "platform": "kotlin",
+      "rationale": "Kotlin twin of the Swift OuraActivityEstimator (Packages/OuraProtocol/.../ActivityEstimate.swift). Byte-identical output is pinned by OuraActivityEstimatorTest against the verbatim stdout of the Swift source compiled standalone over 300 generated inputs; the ledger cannot pair it by name because both platforms overload `estimate`."
+    },
+    {
+      "type": "platform_specific",
+      "kind": "add-unpaired-function",
+      "identity": "kotlin\u0000android/app/src/main/java/com/noop/oura/ActivityEstimate.kt::r2/1#1",
+      "identity_sha256": "66bff0ba4ddae17d3628a64dcd7e16e27d5f6b979b0971f36a92d5111b379bb9",
+      "platform": "kotlin",
+      "rationale": "Kotlin twin of the Swift OuraActivityEstimator (Packages/OuraProtocol/.../ActivityEstimate.swift). Byte-identical output is pinned by OuraActivityEstimatorTest against the verbatim stdout of the Swift source compiled standalone over 300 generated inputs; the ledger cannot pair it by name because both platforms overload `estimate`."
     }
   ]
 }
