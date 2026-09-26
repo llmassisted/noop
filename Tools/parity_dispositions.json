@@ -272,6 +272,54 @@
       "identity_sha256": "c0269f58f2f76216709dc2f39e51be77ce5f622abfbac91be7fbb3a1c2567972",
       "platform": "kotlin",
       "rationale": "Restores the previous Android fork session setup for Oura resting-HR automatic mode, state subscription, and readback. These command constructors support Android foreground/live-HR lifecycle and overnight collection recovery; no Apple session setup is modified or represented as equivalent by this repair."
+    },
+    {
+      "type": "platform_specific",
+      "kind": "add-unpaired-constant",
+      "identity": "kotlin\u0000android/app/src/main/java/com/noop/oura/Commands.kt::featureModeAutomatic",
+      "identity_sha256": "95556eb80cc0ad50c22449962b10e905e3f53983e1470bc6239548ac47674805",
+      "platform": "kotlin",
+      "rationale": "Android port of the Swift Test Centre feature-mode experiment (#2105, OURA_PROTOCOL.md s7.5) for this Android-first fork. The Swift twins already exist in Packages/OuraProtocol; the Kotlin builders keep the same bytes and are reachable only from the Android Test Centre behind a confirmation, never automatically."
+    },
+    {
+      "type": "platform_specific",
+      "kind": "add-unpaired-constant",
+      "identity": "kotlin\u0000android/app/src/main/java/com/noop/oura/Commands.kt::featureModeOff",
+      "identity_sha256": "246ef7473b503adb03d5ca991e229a38c1f60272b319e3a1ab21203d83d37763",
+      "platform": "kotlin",
+      "rationale": "Android port of the Swift Test Centre feature-mode experiment (#2105, OURA_PROTOCOL.md s7.5) for this Android-first fork. The Swift twins already exist in Packages/OuraProtocol; the Kotlin builders keep the same bytes and are reachable only from the Android Test Centre behind a confirmation, never automatically."
+    },
+    {
+      "type": "platform_specific",
+      "kind": "add-unpaired-constant",
+      "identity": "kotlin\u0000android/app/src/main/java/com/noop/oura/EventTags.kt::SPO2_R_PI_UNDECODED",
+      "identity_sha256": "a3712c91c37eb0465f18ce767a15017a29039d9de56adbc252a10e3b5ac4db76",
+      "platform": "kotlin",
+      "rationale": "Android-only capture constant for the never-received 0x8b spo2_r_pi tag (OURA_PROTOCOL.md s6.5.1): the history drain logs its first raw payloads as decoder fixtures. No layout is decoded or stored."
+    },
+    {
+      "type": "platform_specific",
+      "kind": "add-unpaired-function",
+      "identity": "kotlin\u0000android/app/src/main/java/com/noop/oura/Commands.kt::featureReadStatus/1#1",
+      "identity_sha256": "ef5617ddd83227e4b97a1c94a9c3bf85922af314fbcfa2a1fbbcfd1baf9a3b29",
+      "platform": "kotlin",
+      "rationale": "Android port of the Swift Test Centre feature-mode experiment (#2105, OURA_PROTOCOL.md s7.5) for this Android-first fork. The Swift twins already exist in Packages/OuraProtocol; the Kotlin builders keep the same bytes and are reachable only from the Android Test Centre behind a confirmation, never automatically."
+    },
+    {
+      "type": "platform_specific",
+      "kind": "add-unpaired-function",
+      "identity": "kotlin\u0000android/app/src/main/java/com/noop/oura/Commands.kt::setFeatureMode/2#1",
+      "identity_sha256": "d2ff8f070a8c5c1558a577a489a6c845cf2503de7cc7745eb511feba62099eea",
+      "platform": "kotlin",
+      "rationale": "Android port of the Swift Test Centre feature-mode experiment (#2105, OURA_PROTOCOL.md s7.5) for this Android-first fork. The Swift twins already exist in Packages/OuraProtocol; the Kotlin builders keep the same bytes and are reachable only from the Android Test Centre behind a confirmation, never automatically."
+    },
+    {
+      "type": "platform_specific",
+      "kind": "add-unpaired-function",
+      "identity": "kotlin\u0000android/app/src/main/java/com/noop/oura/Decoders.kt::decodeFeatureModeReply/1#1",
+      "identity_sha256": "c0190e47d1c92bead02bb9ee79ff344b057dd63c7fff4a63a47afb9d767737b2",
+      "platform": "kotlin",
+      "rationale": "Android-only decode of the ring's 2f 03 23 feature-mode verdict (OURA_PROTOCOL.md s7.5), so a Test Centre write logs accepted / NOT_SUPPORTED / NOT_AVAILABLE instead of being routed as a live-HR ack. Diagnostic only; never scored or stored."
     }
   ]
 }

@@ -2834,4 +2834,16 @@
     <string name="oura_hrv_resting_detail">NOOP calcule la VFC sur la même période de repos. Elle ne contribue à Charge que lorsque du sommeil est détecté. Oura fait la moyenne de %1$d mesures de cinq minutes.</string>
     <string name="oura_hrv_nightly_detail">NOOP calcule la VFC pour Charge à partir des intervalles entre battements enregistrés. Oura fait la moyenne de %1$d mesures de cinq minutes.</string>
     <string name="oura_hrv_table_note">Chaque mesure Oura couvre cinq minutes de repos. NOOP utilise les intervalles entre battements correspondants. — indique un manque de données valides.</string>
+
+    <!-- Oura SpO2 feature-mode experiment (Test Centre) -->
+    <string name="oura_spo2_mode_title">Mesure SpO2 Oura (expérimental)</string>
+    <string name="oura_spo2_mode_desc">Demande à la bague d\'enregistrer l\'oxygène sanguin la nuit. Non vérifié sur les bagues où Oura n\'a jamais activé la SpO2. Désactiver annule le réglage. La réponse de la bague apparaît dans le journal du bracelet.</string>
+    <string name="oura_spo2_mode_enable">Activer la SpO2 sur la bague</string>
+    <string name="oura_spo2_mode_disable">Désactiver la SpO2 sur la bague</string>
+    <string name="oura_spo2_mode_confirm_enable">Activer la SpO2 sur la bague ?</string>
+    <string name="oura_spo2_mode_confirm_disable">Désactiver la SpO2 sur la bague ?</string>
+    <string name="oura_spo2_mode_confirm_body">Ceci envoie un changement de réglage à la bague. L\'autre bouton l\'annule.</string>
+    <string name="oura_spo2_mode_send">Envoyer</string>
+    <string name="oura_spo2_mode_sent">Envoyé. Consultez le journal du bracelet pour la réponse de la bague.</string>
+    <string name="oura_spo2_mode_not_connected">Bague non connectée. Attendez la connexion, puis réessayez.</string>
 </resources>

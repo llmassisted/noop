@@ -2864,4 +2864,16 @@
     <string name="oura_hrv_resting_detail">NOOP calculates HRV from the same resting window. It does not affect Charge until sleep is detected. Oura averages %1$d five-minute measurements.</string>
     <string name="oura_hrv_nightly_detail">NOOP calculates HRV from stored beat intervals for Charge. Oura averages %1$d five-minute measurements.</string>
     <string name="oura_hrv_table_note">Each Oura sample covers five minutes at rest. NOOP uses matching beat intervals. — means insufficient clean data.</string>
+
+    <!-- Oura SpO2 feature-mode experiment (Test Centre) -->
+    <string name="oura_spo2_mode_title">Oura SpO2 sensing (experimental)</string>
+    <string name="oura_spo2_mode_desc">Asks the ring to record blood oxygen overnight. Unverified on rings where Oura never enabled SpO2. Disable reverts it. The ring\'s answer appears in the strap log.</string>
+    <string name="oura_spo2_mode_enable">Enable SpO2 on ring</string>
+    <string name="oura_spo2_mode_disable">Disable SpO2 on ring</string>
+    <string name="oura_spo2_mode_confirm_enable">Enable SpO2 on the ring?</string>
+    <string name="oura_spo2_mode_confirm_disable">Disable SpO2 on the ring?</string>
+    <string name="oura_spo2_mode_confirm_body">This sends one setting change to the ring. The other button reverts it.</string>
+    <string name="oura_spo2_mode_send">Send</string>
+    <string name="oura_spo2_mode_sent">Sent. Check the strap log for the ring\'s reply.</string>
+    <string name="oura_spo2_mode_not_connected">Ring not connected. Wait for it to connect, then try again.</string>
 </resources>

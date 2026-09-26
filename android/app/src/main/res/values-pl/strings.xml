@@ -2849,4 +2849,16 @@
     <string name="oura_hrv_resting_detail">NOOP oblicza HRV dla tego samego okresu odpoczynku. Wynik wpływa na Charge dopiero po wykryciu snu. Oura oblicza średnią z pomiarów pięciominutowych; ich liczba: %1$d.</string>
     <string name="oura_hrv_nightly_detail">NOOP oblicza HRV dla Charge z zapisanych odstępów między uderzeniami serca. Oura oblicza średnią z pomiarów pięciominutowych; ich liczba: %1$d.</string>
     <string name="oura_hrv_table_note">Każdy pomiar Oura obejmuje pięć minut odpoczynku. NOOP używa odpowiadających mu odstępów między uderzeniami serca. — oznacza za mało poprawnych danych.</string>
+
+    <!-- Oura SpO2 feature-mode experiment (Test Centre) -->
+    <string name="oura_spo2_mode_title">Pomiar SpO2 Oura (eksperymentalny)</string>
+    <string name="oura_spo2_mode_desc">Prosi pierścień o rejestrowanie natlenienia krwi w nocy. Niesprawdzone na pierścieniach, w których Oura nigdy nie włączyła SpO2. Wyłączenie cofa zmianę. Odpowiedź pierścienia pojawia się w logu opaski.</string>
+    <string name="oura_spo2_mode_enable">Włącz SpO2 w pierścieniu</string>
+    <string name="oura_spo2_mode_disable">Wyłącz SpO2 w pierścieniu</string>
+    <string name="oura_spo2_mode_confirm_enable">Włączyć SpO2 w pierścieniu?</string>
+    <string name="oura_spo2_mode_confirm_disable">Wyłączyć SpO2 w pierścieniu?</string>
+    <string name="oura_spo2_mode_confirm_body">Wysyła to jedną zmianę ustawienia do pierścienia. Drugi przycisk ją cofa.</string>
+    <string name="oura_spo2_mode_send">Wyślij</string>
+    <string name="oura_spo2_mode_sent">Wysłano. Odpowiedź pierścienia znajdziesz w logu opaski.</string>
+    <string name="oura_spo2_mode_not_connected">Pierścień nie jest połączony. Poczekaj na połączenie i spróbuj ponownie.</string>
 </resources>

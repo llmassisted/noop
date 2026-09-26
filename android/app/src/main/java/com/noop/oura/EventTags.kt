@@ -158,5 +158,10 @@ enum class OuraEventTag(val raw: Int) {
 
         /** Map a `type` byte to its tag, or null when the byte is not in the dictionary (honest). */
         fun fromRaw(raw: Int): OuraEventTag? = byRaw[raw]
+
+        /** `spo2_r_pi_event` (OURA_PROTOCOL.md s6.5.1): SpO2 ratio-of-ratios + perfusion index. Deliberately
+         *  NOT a dictionary entry — never received by NOOP, so no layout is validated; the history drain only
+         *  logs its raw payloads as fixtures. */
+        const val SPO2_R_PI_UNDECODED: Int = 0x8B
     }
 }

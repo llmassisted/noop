@@ -2835,4 +2835,16 @@
     <string name="oura_hrv_resting_detail">NOOP calcula la VFC del mismo periodo de reposo. No afecta a Charge hasta que se detecta sueño. Oura promedia %1$d mediciones de cinco minutos.</string>
     <string name="oura_hrv_nightly_detail">NOOP calcula la VFC para Charge a partir de los intervalos entre latidos almacenados. Oura promedia %1$d mediciones de cinco minutos.</string>
     <string name="oura_hrv_table_note">Cada muestra de Oura abarca cinco minutos de reposo. NOOP usa los intervalos entre latidos correspondientes. — indica datos válidos insuficientes.</string>
+
+    <!-- Oura SpO2 feature-mode experiment (Test Centre) -->
+    <string name="oura_spo2_mode_title">Medición de SpO2 de Oura (experimental)</string>
+    <string name="oura_spo2_mode_desc">Pide al anillo que registre el oxígeno en sangre por la noche. Sin verificar en anillos donde Oura nunca activó SpO2. Desactivar lo revierte. La respuesta del anillo aparece en el registro de la banda.</string>
+    <string name="oura_spo2_mode_enable">Activar SpO2 en el anillo</string>
+    <string name="oura_spo2_mode_disable">Desactivar SpO2 en el anillo</string>
+    <string name="oura_spo2_mode_confirm_enable">¿Activar SpO2 en el anillo?</string>
+    <string name="oura_spo2_mode_confirm_disable">¿Desactivar SpO2 en el anillo?</string>
+    <string name="oura_spo2_mode_confirm_body">Esto envía un cambio de ajuste al anillo. El otro botón lo revierte.</string>
+    <string name="oura_spo2_mode_send">Enviar</string>
+    <string name="oura_spo2_mode_sent">Enviado. Consulta el registro de la banda para ver la respuesta del anillo.</string>
+    <string name="oura_spo2_mode_not_connected">Anillo no conectado. Espera a que se conecte e inténtalo de nuevo.</string>
 </resources>

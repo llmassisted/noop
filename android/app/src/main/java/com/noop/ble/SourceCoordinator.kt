@@ -271,6 +271,11 @@ class SourceCoordinator(
         (activeSource as? OuraLiveSource)?.setLiveHRRequested(requested)
     }
 
+    /** Test Centre's confirmation-gated Oura feature-mode experiment (OURA_PROTOCOL.md s7.5). False when no
+     *  Oura ring is the active, idle-connected source. Never called automatically. */
+    fun writeOuraFeatureMode(feature: Int, mode: Int): Boolean =
+        (activeSource as? OuraLiveSource)?.writeFeatureMode(feature, mode) ?: false
+
     /**
      * The BLE engine connected to a WHOOP strap at [address] (null on disconnect). Persist that stable
      * identity onto the CURRENTLY ACTIVE device when it's a WHOOP and hasn't adopted one yet — so the

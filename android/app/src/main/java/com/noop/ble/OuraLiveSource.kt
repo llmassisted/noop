@@ -385,6 +385,10 @@ class OuraLiveSource(
     /** Feature ids whose status we have already logged this session (SpO2 0x04 / real_steps 0x0b), so the
      *  read-only feature-status diagnostic prints once per feature, not on every reconnect. */
     private val loggedFeatureStatuses = mutableSetOf<Int>()
+    /** `0x8b` spo2_r_pi records whose raw payload has been logged this session. NOOP has never received the
+     *  tag (OURA_PROTOCOL.md s6.5.1); if enabling SpO2 makes a Ring 4 emit it, the first few raw payloads are
+     *  the fixtures a decoder must be validated against. Capped so a full night cannot flood the log. */
+    private var spo2RatioRecordsLogged = 0
     /** Product-info replies already logged this session, keyed by op+body so the #771/#772 serial/hardware
      *  capture prints each DISTINCT reply once — get_serial and get_hardware both answer under op 0x19, so a
      *  per-op guard would swallow the second (observed on-device: only the serial reached the log). Twin of
@@ -814,6 +818,54 @@ class OuraLiveSource(
                 }
             }
         }
+    }
+
+    /**
+     * Send one `2f 03 22 <id> <mode>` feature-mode write. EXPERIMENT ONLY — reachable exclusively from the
+     * Test Centre Oura section behind a confirmation; nothing in the connect flow or [OuraDriver] calls it,
+     * and it is never sent automatically. UNVALIDATED per OURA_PROTOCOL.md s7.5. Twin of the Swift
+     * `writeFeatureMode`.
+     *
+     * Only sent while idle-streaming, never mid-auth or mid live-HR enable, so the ring's `0x23` reply can
+     * never be mistaken for a live-HR triplet step. Clears any already-logged status for this feature first
+     * so the read-status probe sent with it logs a fresh line (the connect-time probe has already consumed
+     * [logFeatureStatus]'s once-per-connection dedup). Returns false when no authenticated ring is idle.
+     */
+    fun writeFeatureMode(feature: Int, mode: Int): Boolean {
+        if (driver?.phase != OuraDriverPhase.Streaming) {
+            log("Oura: feature-mode write SKIPPED - ring not connected and idle")
+            return false
+        }
+        handler.post {
+            guardedCallback("feature-mode-write") {
+                if (driver?.phase != OuraDriverPhase.Streaming) {
+                    log("Oura: feature-mode write SKIPPED - ring left the idle streaming state")
+                    return@guardedCallback
+                }
+                val cmd = OuraCommands.setFeatureMode(feature, mode)
+                val frameHex = cmd.bytes.joinToString("") { "%02x".format(it) }
+                log("Oura: feature-mode WRITE feature=0x${feature.toString(16)} mode=$mode frame=$frameHex" +
+                    " - EXPERIMENT, unvalidated on NOOP hardware (OURA_PROTOCOL.md s7.5)")
+                loggedFeatureStatuses.remove(feature)
+                write(cmd)
+                write(OuraCommands.featureReadStatus(feature))
+            }
+        }
+        return true
+    }
+
+    /** Log the ring's verdict on a feature-mode write for any feature other than daytime HR (whose reply is
+     *  step 2 of the live-HR triplet and stays with the driver). Always-on: it only fires after a write. */
+    private fun logFeatureModeReply(reply: com.noop.oura.OuraFeatureModeReply) {
+        val feature = reply.feature
+        val status = reply.status
+        val verdict = when (status) {
+            0 -> "accepted"
+            1 -> "rejected NOT_SUPPORTED"
+            2 -> "rejected NOT_AVAILABLE"
+            else -> "status ?"
+        }
+        log("Oura: feature-mode reply feature=0x${feature.toString(16)} status=$status ($verdict)")
     }
 
     private fun scheduleHistoryFetch() {
@@ -1394,6 +1446,7 @@ class OuraLiveSource(
         pendingSyncTime = null
         loggedTierBKinds.clear()
         loggedFeatureStatuses.clear()
+        spo2RatioRecordsLogged = 0
         loggedProductInfo.clear()
         pendingAnchorEvents.clear()
         // Per-drain / per-session protocol state starts clean (twin of Swift's connect-setup reset).
@@ -1508,6 +1561,7 @@ class OuraLiveSource(
         pendingSyncTime = null
         loggedTierBKinds.clear()
         loggedFeatureStatuses.clear()
+        spo2RatioRecordsLogged = 0
         loggedProductInfo.clear()
         reachedStreaming = false
         clearAuthWatchdog()
@@ -1701,6 +1755,7 @@ class OuraLiveSource(
                     pendingSyncTime = null
                     loggedTierBKinds.clear()
         loggedFeatureStatuses.clear()
+        spo2RatioRecordsLogged = 0
                     loggedProductInfo.clear()
                     reachedStreaming = false
                     liveHRActive = false
@@ -2267,6 +2322,12 @@ class OuraLiveSource(
                     drain.noteSeenRingTime(rec.ringTimestamp)
                     historyRecordCount += 1
                     historyTagCounts[rec.type] = (historyTagCounts[rec.type] ?: 0L) + 1L
+                    if (rec.type == com.noop.oura.OuraEventTag.SPO2_R_PI_UNDECODED && spo2RatioRecordsLogged < SPO2_R_PI_LOG_LIMIT) {
+                        spo2RatioRecordsLogged += 1
+                        log("Oura: spo2_r_pi (0x8b) raw rt=${rec.ringTimestamp} payload=" +
+                            rec.payload.joinToString("") { "%02x".format(it) } +
+                            " - UNDECODED, capture for OURA_PROTOCOL.md s6.5.1")
+                    }
                 }
                 val events = d.ingest(rec)
                 if (isHistoryRecord && events.isNotEmpty()) historyDecodedRecordCount += 1
@@ -2300,6 +2361,7 @@ class OuraLiveSource(
                 advance(OuraTransition.EnableAckReceived)
             }
             is OuraDriver.SecureRouting.FeatureStatus -> logFeatureStatus(routing.value)   // read-only; no advance
+            is OuraDriver.SecureRouting.FeatureModeReply -> logFeatureModeReply(routing.value)   // no advance
             is OuraDriver.SecureRouting.LiveHRPush -> emit(d.ingestLiveHRPush(routing.body))
             OuraDriver.SecureRouting.Unhandled -> Unit
         }
@@ -2912,6 +2974,9 @@ class OuraLiveSource(
 
         /** Keep the raw tag census compact enough for the rolling strap log while preserving its leaders. */
         private const val HISTORY_TAG_LOG_LIMIT = 24
+
+        /** How many raw `0x8b` spo2_r_pi payloads to log per session (OURA_PROTOCOL.md s6.5.1). */
+        private const val SPO2_R_PI_LOG_LIMIT = 8
 
         /** Max self-chained drain passes per session (twin of Swift's maxChainedDrainPasses). */
         private const val MAX_CHAINED_DRAIN_PASSES = 6

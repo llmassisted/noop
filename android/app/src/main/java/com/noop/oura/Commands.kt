@@ -205,6 +205,31 @@ object OuraCommands {
     fun spo2ReadStatus(): OuraCommand =
         OuraCommand("spo2_status", intArrayOf(0x2F, 0x02, 0x20, featureSpO2))
 
+    // Feature-mode write (s7.5; UNVALIDATED, opt-in only). Kotlin twins of the Swift builders.
+
+    /** Feature MODE values for [setFeatureMode] (s7.1): off, and automatic (ring runs it when worn and banks
+     *  the result for sync). The only two the [open_oura-feat] local-write evidence covers. */
+    const val featureModeOff = 0x00
+    const val featureModeAutomatic = 0x01
+
+    /** Read any feature's status: `2f 02 20 <id>` — the same read verb as [spo2ReadStatus] /
+     *  [realStepsReadStatus], generalized so the feature-mode write below can re-probe after writing. */
+    fun featureReadStatus(feature: Int): OuraCommand =
+        OuraCommand("feature_status_${feature.toString(16)}", intArrayOf(0x2F, 0x02, 0x20, feature))
+
+    /**
+     * Write a feature's MODE: `2f 03 22 <id> <mode>`. UNVALIDATED on NOOP's own hardware — see
+     * OURA_PROTOCOL.md s7.5: [open_oura-feat] reports this write bypassing the account gate for several
+     * features on a consumer ring, tested there only with mode=0x01 (automatic); mode=0x00 ("off") always
+     * reverts. Gated to Test Centre / explicit user action only — nothing in [OuraDriver]'s own flow
+     * produces this call.
+     */
+    fun setFeatureMode(feature: Int, mode: Int): OuraCommand =
+        OuraCommand(
+            "EXPERIMENT_set_feature_${feature.toString(16)}_mode$mode",
+            intArrayOf(0x2F, 0x03, 0x22, feature, mode),
+        )
+
     /**
      * Read the real-steps feature status, `2f 02 20 0b` (READ verb, not enable). The `0x21` reply reports
      * the ring's own real_steps gate state - NOT reliably "off" for an offline ring: on-device

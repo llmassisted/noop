@@ -638,7 +638,19 @@ class OuraDriver(
             }
             return SecureRouting.EnableAck
         }
-        if (frame.subop == 0x23 || frame.subop == 0x27) {
+        if (frame.subop == 0x23) {
+            // 0x23 answers ANY feature-mode write. Only the daytime-HR one is step 2 of the live-HR triplet;
+            // another feature's reply (the resting-HR restore at connect, or the Test Centre experiment,
+            // s7.5) carries the ring's verdict on that write and must not advance the triplet.
+            val reply = OuraDecoders.decodeFeatureModeReply(frame.subBody)
+            if (reply != null && reply.feature != OuraCommands.featureDaytimeHR &&
+                phase != OuraDriverPhase.EnablingLiveHR
+            ) {
+                return SecureRouting.FeatureModeReply(reply)
+            }
+            return SecureRouting.EnableAck
+        }
+        if (frame.subop == 0x27) {
             return SecureRouting.EnableAck
         }
         return SecureRouting.Unhandled
@@ -668,6 +680,7 @@ class OuraDriver(
 
         object EnableAck : SecureRouting()
         data class FeatureStatus(val value: OuraFeatureStatus) : SecureRouting()
+        data class FeatureModeReply(val value: OuraFeatureModeReply) : SecureRouting()
         object Unhandled : SecureRouting()
     }
 

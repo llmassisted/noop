@@ -2728,4 +2728,16 @@
     <string name="oura_hrv_resting_detail">NOOP рассчитывает ВСР за тот же период покоя. Результат влияет на Charge только после обнаружения сна. Oura усредняет пятиминутные измерения; их количество: %1$d.</string>
     <string name="oura_hrv_nightly_detail">NOOP рассчитывает ВСР для Charge по сохранённым интервалам между ударами сердца. Oura усредняет пятиминутные измерения; их количество: %1$d.</string>
     <string name="oura_hrv_table_note">Каждое измерение Oura охватывает пять минут покоя. NOOP использует соответствующие интервалы между ударами сердца. — означает, что достоверных данных недостаточно.</string>
+
+    <!-- Oura SpO2 feature-mode experiment (Test Centre) -->
+    <string name="oura_spo2_mode_title">Измерение SpO2 Oura (экспериментально)</string>
+    <string name="oura_spo2_mode_desc">Просит кольцо записывать уровень кислорода в крови ночью. Не проверено на кольцах, где Oura никогда не включала SpO2. «Выключить» отменяет изменение. Ответ кольца появится в журнале браслета.</string>
+    <string name="oura_spo2_mode_enable">Включить SpO2 на кольце</string>
+    <string name="oura_spo2_mode_disable">Выключить SpO2 на кольце</string>
+    <string name="oura_spo2_mode_confirm_enable">Включить SpO2 на кольце?</string>
+    <string name="oura_spo2_mode_confirm_disable">Выключить SpO2 на кольце?</string>
+    <string name="oura_spo2_mode_confirm_body">Кольцу будет отправлено одно изменение настройки. Другая кнопка его отменяет.</string>
+    <string name="oura_spo2_mode_send">Отправить</string>
+    <string name="oura_spo2_mode_sent">Отправлено. Ответ кольца смотрите в журнале браслета.</string>
+    <string name="oura_spo2_mode_not_connected">Кольцо не подключено. Дождитесь подключения и повторите попытку.</string>
 </resources>

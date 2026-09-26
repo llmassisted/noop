@@ -528,6 +528,16 @@ object OuraDecoders {
         return OuraFeatureStatus(subBody[0], subBody[1], subBody[2], subBody[3], subBody[4])
     }
 
+    /**
+     * Decode a feature-mode write reply's SUB-BODY (the bytes AFTER the `0x23` sub-op) into feature + status
+     * (OURA_PROTOCOL.md s7.5). Returns null on a short body (< 2) so a truncated reply never fabricates a
+     * verdict.
+     */
+    fun decodeFeatureModeReply(subBody: IntArray): OuraFeatureModeReply? {
+        if (subBody.size < 2) return null
+        return OuraFeatureModeReply(subBody[0], subBody[1])
+    }
+
     // MARK: - Debug text (0x43; s6.15)
 
     /**

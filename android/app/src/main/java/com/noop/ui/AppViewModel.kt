@@ -2580,6 +2580,15 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         NoopPrefs.setOuraNotifyMaskFull(appContext, enabled)
     }
 
+    /** Test Centre's confirmation-gated Oura SpO2 feature-mode experiment (OURA_PROTOCOL.md s7.5): writes
+     *  mode automatic (enable) or off (disable) to the connected ring. Never called automatically. False
+     *  when no Oura ring is connected and idle; the ring's verdict lands in the strap log. */
+    fun writeOuraSpO2Mode(enable: Boolean): Boolean =
+        noopApp.sourceCoordinator.writeOuraFeatureMode(
+            com.noop.oura.OuraCommands.featureSpO2,
+            if (enable) com.noop.oura.OuraCommands.featureModeAutomatic else com.noop.oura.OuraCommands.featureModeOff,
+        )
+
     /** #1121: toggle the opt-in rolling "detailed capture" strap-log file. Persisted so it survives a
      *  process kill (re-armed in [init] below). */
     fun setDetailedCapture(enabled: Boolean) {

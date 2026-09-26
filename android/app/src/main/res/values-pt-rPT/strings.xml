@@ -2827,4 +2827,16 @@
     <string name="oura_hrv_resting_detail">O NOOP calcula a VFC para o mesmo período de repouso. Não afeta o Charge até ser detetado sono. O Oura calcula a média de %1$d medições de cinco minutos.</string>
     <string name="oura_hrv_nightly_detail">O NOOP calcula a VFC para o Charge a partir dos intervalos entre batimentos guardados. O Oura calcula a média de %1$d medições de cinco minutos.</string>
     <string name="oura_hrv_table_note">Cada amostra do Oura abrange cinco minutos em repouso. O NOOP utiliza os intervalos entre batimentos correspondentes. — indica dados válidos insuficientes.</string>
+
+    <!-- Oura SpO2 feature-mode experiment (Test Centre) -->
+    <string name="oura_spo2_mode_title">Medição de SpO2 Oura (experimental)</string>
+    <string name="oura_spo2_mode_desc">Pede ao anel que registe o oxigénio no sangue durante a noite. Não verificado em anéis onde a Oura nunca ativou a SpO2. Desativar reverte. A resposta do anel aparece no registo da pulseira.</string>
+    <string name="oura_spo2_mode_enable">Ativar SpO2 no anel</string>
+    <string name="oura_spo2_mode_disable">Desativar SpO2 no anel</string>
+    <string name="oura_spo2_mode_confirm_enable">Ativar SpO2 no anel?</string>
+    <string name="oura_spo2_mode_confirm_disable">Desativar SpO2 no anel?</string>
+    <string name="oura_spo2_mode_confirm_body">Isto envia uma alteração de definição ao anel. O outro botão reverte-a.</string>
+    <string name="oura_spo2_mode_send">Enviar</string>
+    <string name="oura_spo2_mode_sent">Enviado. Consulte o registo da pulseira para ver a resposta do anel.</string>
+    <string name="oura_spo2_mode_not_connected">Anel não ligado. Aguarde a ligação e tente novamente.</string>
 </resources>
