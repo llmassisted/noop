@@ -206,7 +206,7 @@ class DecoderGoldenTest {
         // BE 0x03CA = 970. If decoded LE it would be 0xCA03 = 51715, so this proves the BE path.
         val rec = record("7b060200010003ca")
         val s = OuraDecoders.decodeSpO2Stable(rec)
-        assertEquals(OuraSpO2(ringTimestamp = rt, value = 970), s)
+        assertEquals(OuraSpO2(ringTimestamp = rt, value = 970, unit = OuraSpO2Channel.STABLE_UNIT), s)
     }
 
     // MARK: - 0x46 temperature (int16 LE / 100)

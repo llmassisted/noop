@@ -1,8 +1,15 @@
 package com.noop.ui
 
+import com.noop.analytics.Baselines
+import com.noop.analytics.StepsDetailBucket
+import com.noop.analytics.StepsDetailDensity
+import com.noop.analytics.StepsDetailGranularity
+import com.noop.analytics.StepsDetailRange
+import com.noop.analytics.StepsDetailReading
 import com.noop.data.Vo2MaxEstimator
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
+import java.time.format.ResolverStyle
 import java.util.Locale
 
 /** One windowed reading behind a vital's detail chart: its day ("YYYY-MM-DD"), the value, and the RAW
@@ -35,6 +42,131 @@ internal const val SPO2_CANDIDATE_ATTRIBUTION_SOURCE = "spo2-candidate-estimate"
 internal fun vo2MaxAttributionSource(estimator: Vo2MaxEstimator?): String =
     VO2_MAX_ATTRIBUTION_PREFIX + (estimator?.provenanceId ?: "unknown")
 
+/**
+ * The y-domain a metric should be drawn against, or null to scale to the data.
+ *
+ * Auto-scaling makes a calm metric look exactly as violent as a wild one: Rest moving 46..93 on a 0..100
+ * scale fills the same full height as Effort moving 0..42, and one low day rewrites the whole shape. For a
+ * metric whose natural range IS its interesting range, anchoring is what makes the height mean something.
+ *
+ * Deliberately a small allow-list rather than "percentages get 0..100". Blood oxygen is a percentage whose
+ * real movement lives in 90..100, so anchoring it to the nominal range would flatten the signal into a line
+ * at the top: strictly worse than auto-scaling. Resting HR, HRV and skin temperature have no fixed range at
+ * all.
+ *
+ * Effort is 0..100 here whatever the user's display scale says. The readings store the RAW 0-100 composite
+ * and only `format()` converts to the 0..21 reading, so the chart plots the stored value. Taking the domain
+ * from the display scale would have squashed every Effort chart on a WHOOP-scale install into the bottom
+ * fifth of its height.
+ */
+internal fun vitalChartYDomain(key: String): ClosedFloatingPointRange<Double>? =
+    when (key) {
+        // "rest", NOT "sleep_performance": that is the SERIES name this detail reads underneath, and it is
+        // never a detail key on Android. Writing the series name here compiled, passed a test asserting it,
+        // and left the Rest chart auto-scaling exactly as before.
+        // A ZERO-WIDTH domain at 0, not 0..100. The chart widens a domain to contain the data, so this
+        // pins the FLOOR at zero while the ceiling follows the readings.
+        //
+        // Anchoring at 100 was the first attempt and it overcorrected: Effort peaks in the low forties, so
+        // the top ~58% of the chart sat permanently empty, and Rest at 46..93 wasted the bottom half. A
+        // zero floor keeps what actually mattered, that heights stay comparable and a 0.0 day reads as the
+        // floor rather than as the middle, without spending most of the height on range nobody reaches.
+        "recovery", "rest", "strain" -> 0.0..0.0
+        else -> null
+    }
+
+/**
+ * Per-reading epoch seconds from the day keys, or null when any day fails to parse.
+ *
+ * All-or-nothing on purpose: a partially-parsed list would position some points by time and the rest by a
+ * fallback, which is a worse lie than either rule applied consistently. Returning null makes the chart use
+ * index spacing, exactly as before.
+ */
+internal fun dayEpochSeconds(readings: List<VitalReading>): List<Long>? {
+    val out = ArrayList<Long>(readings.size)
+    for (r in readings) {
+        val day = runCatching { java.time.LocalDate.parse(r.day) }.getOrNull() ?: return null
+        out += day.toEpochDay() * 86_400L
+    }
+    return out
+}
+
+/**
+ * The personal baseline to annotate a vital chart with, or null when there is not one worth drawing.
+ *
+ * HRV and resting HR only. Both are LEVELS whose absolute number means little without the reader's own
+ * normal: "HRV 42" says nothing on its own, while "42, and your baseline is 54" says the thing they came
+ * to find out. The daily scores need no such reference, since 0..100 and 0..21 are already interpretable,
+ * and skin temperature already offers a signed deviation view of its own.
+ *
+ * The SAME fold the vitals grid bands against ([VitalBands.band] calls `Baselines.foldHistory` with this
+ * cfg), so a reading the grid calls out of range cannot sit on the right side of the rule on the chart
+ * next to it. One definition of "your normal" or the two surfaces will disagree in front of the reader.
+ *
+ * Null unless the state is TRUSTED, which is at least fourteen valid nights and not stale. A rule drawn
+ * from four nights would be a guess wearing the authority of a reference line, and the calibrating case
+ * is exactly when a reader is most likely to over-read it. Values arrive oldest to newest, which is what
+ * the EWMA fold expects, and what `ORDER BY day ASC` gives.
+ */
+internal fun vitalBaseline(key: String, readings: List<VitalReading>): Double? {
+    val cfgKey = when (key) {
+        "hrv" -> "hrv"
+        "rhr" -> "resting_hr"
+        else -> return null
+    }
+    val cfg = Baselines.metricCfg[cfgKey] ?: return null
+    val state = Baselines.foldHistory(readings.map { it.value }, cfg)
+    return if (state.trusted) state.baseline else null
+}
+
+/**
+ * Whether this screen draws BARS rather than a line. Steps are the one domain override; every other
+ * vital keeps the user's chart-style setting unchanged.
+ *
+ * #2011 chose bars per METRIC instead, forcing them for the daily scores because a line asserts continuity
+ * between points and a daily score never travelled between its readings. The reasoning holds, but the rule
+ * did not: this screen had never consulted the setting at all, so the override made a chosen `LINE` draw
+ * bars anyway. It also left the inverse broken in the other direction, where a chosen `BAR` still got lines
+ * here for every metric outside those three.
+ *
+ * Steps are discrete counts and their shared density contract requires daily, weekly or monthly bars.
+ * For every other metric Trends already applies the same preference ([TrendsScreen] reads it too), so a
+ * detail chart reached from a Today ring agrees with the trend chart rather than contradicting it.
+ *
+ * No source-specific key participates: the Android detail key represents the fachliche steps metric after
+ * source resolution, so WHOOP, imports and estimates all receive the same chart contract.
+ */
+internal fun vitalChartIsBars(key: String, style: TrendChartStyle): Boolean =
+    key == "steps_est" || style == TrendChartStyle.BAR
+
+/**
+ * One slot per DAY across the window, rather than one per reading.
+ *
+ * Bars are laid out evenly across their slots, so giving every day a slot is what positions them by date:
+ * a missing day becomes an empty slot of the right width, with no separate spacing machinery. Days with no
+ * reading carry NaN, which the bar chart already treats as nothing to draw.
+ *
+ * Returns null when a day key fails to parse, so the caller falls back to the per-reading form rather than
+ * silently dropping readings into the wrong slots.
+ */
+internal fun densifyByDay(readings: List<VitalReading>): List<Pair<String, Double>>? {
+    if (readings.isEmpty()) return emptyList()
+    val byDay = LinkedHashMap<java.time.LocalDate, Double>()
+    for (r in readings) {
+        val day = runCatching { java.time.LocalDate.parse(r.day) }.getOrNull() ?: return null
+        byDay[day] = r.value
+    }
+    val first = byDay.keys.min()
+    val last = byDay.keys.max()
+    val out = ArrayList<Pair<String, Double>>()
+    var day = first
+    while (!day.isAfter(last)) {
+        out += day.toString() to (byDay[day] ?: Double.NaN)
+        day = day.plusDays(1)
+    }
+    return out
+}
+
 /** Sequential ids for a method-aware trend. Nes → Uth → Nes becomes three segments rather than joining
  *  the non-adjacent Nes runs across an incompatible estimator. */
 internal fun vo2MaxTrendSegmentIds(readings: List<VitalReading>): List<String> {
@@ -49,6 +181,21 @@ internal fun vo2MaxTrendSegmentIds(readings: List<VitalReading>): List<String> {
     }
 }
 
+/**
+ * Will the chart show a visible break in this VO2max trend?
+ *
+ * Derived from [vo2MaxTrendSegmentIds] rather than recomputed, so the caption and the segmentation can
+ * never disagree: if the ids collapse to one group the line is continuous and there is nothing to
+ * explain. Two readings from the SAME estimator with a gap in days are one segment and correctly get no
+ * caption - a break means the readings were not produced alike, not that the data paused.
+ *
+ * Named for the BREAK, not for a method change: an untagged legacy reading resolves to
+ * "...estimator:unknown" (see [vo2MaxAttributionSource]), so an unknown -> Nes transition also splits the
+ * line while the method itself may never have changed. The caption is worded for both causes.
+ */
+internal fun vo2MaxTrendHasBreak(readings: List<VitalReading>): Boolean =
+    vo2MaxTrendSegmentIds(readings).distinct().size > 1
+
 /** #377: merge the three step stores into one per-day series with the SAME precedence as the Today
  *  Steps tile — a REAL on-device count ([real], WHOOP 5/MG @57 → DailyMetric.steps) wins, else an
  *  [imported] Health Connect / Apple Health count, else the motion-model [est] (`steps_est`). The three
@@ -59,7 +206,10 @@ internal fun mergeStepsReadings(
     est: Map<String, VitalReading>,
 ): List<VitalReading> =
     (real.keys + imported.keys + est.keys).toSortedSet()
-        .mapNotNull { d -> real[d] ?: imported[d] ?: est[d] }
+        .mapNotNull { day ->
+            listOf(real[day], imported[day], est[day])
+                .firstOrNull { it != null && it.value.isFinite() && it.value >= 0.0 }
+        }
 
 /** #616: per-day precedence merge for a metric with disjoint stores (first non-null per day wins),
  *  ascending. The N-store generalisation of [mergeStepsReadings]; calories reuse it as the two-store
@@ -121,6 +271,100 @@ internal enum class VitalDetailRange(val label: String, val days: Long?) {
     SIX_MONTH("6M", 180),
     YEAR("1Y", 365),
     ALL("ALL", null),
+}
+
+/** Android-facing view of the shared steps projection. Every chart-facing surface consumes this one
+ * bucket list; the daily readings table deliberately continues to consume [VitalReading] instead. */
+internal data class StepsDetailUiSeries(
+    val buckets: List<StepsDetailBucket>,
+    val granularity: StepsDetailGranularity,
+    val points: List<Pair<String, Double>>,
+    val selectionLabels: List<String>,
+    val accessibilitySummary: String,
+)
+
+private fun VitalDetailRange.stepsRange(): StepsDetailRange = when (this) {
+    VitalDetailRange.WEEK -> StepsDetailRange.WEEK
+    VitalDetailRange.TWO_WEEK -> StepsDetailRange.TWO_WEEKS
+    VitalDetailRange.THREE_WEEK -> StepsDetailRange.THREE_WEEKS
+    VitalDetailRange.MONTH -> StepsDetailRange.MONTH
+    VitalDetailRange.THREE_MONTH -> StepsDetailRange.THREE_MONTHS
+    VitalDetailRange.SIX_MONTH -> StepsDetailRange.SIX_MONTHS
+    VitalDetailRange.YEAR -> StepsDetailRange.YEAR
+    VitalDetailRange.ALL -> StepsDetailRange.ALL
+}
+
+/** Project the already source-resolved daily readings through P1's calendar contract. */
+internal fun projectStepsDetail(
+    readings: List<VitalReading>,
+    range: VitalDetailRange,
+    resolveString: (Int, Array<out Any>) -> String = ::uiString,
+): StepsDetailUiSeries {
+    val sharedRange = range.stepsRange()
+    val buckets = StepsDetailDensity.project(
+        readings.map { StepsDetailReading(day = it.day, value = it.value) },
+        sharedRange,
+    )
+    val granularity = sharedRange.granularity()
+    val points = buckets.map { it.displayDay to it.mean.toDouble() }
+    val labels = buckets.map { bucket -> stepsBucketLabel(bucket.displayDay, granularity, resolveString) }
+    val accessibility = if (buckets.isEmpty()) {
+        resolveString(com.noop.R.string.steps_no_data, emptyArray())
+    } else {
+        resolveString(com.noop.R.string.steps_chart_summary, arrayOf(buckets.size, labels.zip(buckets).joinToString(
+            separator = "; ",
+        ) { (label, bucket) ->
+            "$label, ${stepsBucketValueLabel(bucket.mean.toDouble(), granularity, resolveString)}"
+        }))
+    }
+    return StepsDetailUiSeries(buckets, granularity, points, labels, accessibility)
+}
+
+internal fun stepsBucketValueLabel(
+    value: Double,
+    granularity: StepsDetailGranularity,
+    resolveString: (Int, Array<out Any>) -> String = ::uiString,
+): String =
+    if (granularity == StepsDetailGranularity.DAILY) {
+        resolveString(com.noop.R.string.steps_value, arrayOf(java.text.NumberFormat.getIntegerInstance().format(value.toInt())))
+    } else {
+        resolveString(com.noop.R.string.steps_mean_value, arrayOf(java.text.NumberFormat.getIntegerInstance().format(value.toInt())))
+    }
+
+private fun stepsBucketLabel(
+    day: String,
+    granularity: StepsDetailGranularity,
+    resolveString: (Int, Array<out Any>) -> String,
+): String {
+    val parsed = strictLocalDay(day) ?: return day
+    return when (granularity) {
+        StepsDetailGranularity.DAILY -> parsed.format(DateTimeFormatter.ofPattern("d MMM", Locale.getDefault()))
+        StepsDetailGranularity.WEEKLY ->
+            resolveString(com.noop.R.string.steps_week_of, arrayOf(parsed.format(DateTimeFormatter.ofPattern("d MMM", Locale.getDefault()))))
+        StepsDetailGranularity.MONTHLY -> parsed.format(DateTimeFormatter.ofPattern("MMM yyyy", Locale.getDefault()))
+    }
+}
+
+private val STRICT_LOCAL_DAY = DateTimeFormatter.ISO_LOCAL_DATE.withResolverStyle(ResolverStyle.STRICT)
+
+private fun strictLocalDay(text: String): LocalDate? =
+    if (!text.matches(Regex("\\d{4}-\\d{2}-\\d{2}"))) null
+    else runCatching { LocalDate.parse(text, STRICT_LOCAL_DAY) }.getOrNull()
+
+/** Calendar-window the raw table without ever substituting a number-of-readings fallback. Malformed day
+ * keys remain visible in the table, as required by the projection contract, but never enter buckets. */
+internal fun filterStepReadings(
+    readings: List<VitalReading>,
+    range: VitalDetailRange,
+): List<VitalReading> {
+    val validValues = readings.filter { it.value.isFinite() && it.value >= 0.0 }
+    val windowDays = range.days ?: return validValues
+    val anchor = validValues.mapNotNull { strictLocalDay(it.day) }.maxOrNull()
+        ?: return validValues.filter { strictLocalDay(it.day) == null }
+    val cutoff = anchor.minusDays(windowDays - 1)
+    return validValues.filter { reading ->
+        strictLocalDay(reading.day)?.let { !it.isBefore(cutoff) && !it.isAfter(anchor) } ?: true
+    }
 }
 
 /** Days spanned by a vital's history: last point's day minus first point's day in epoch days (0 for

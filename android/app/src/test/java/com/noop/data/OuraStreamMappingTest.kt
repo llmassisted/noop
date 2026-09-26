@@ -7,6 +7,8 @@ import com.noop.oura.OuraIBI
 import com.noop.oura.OuraMotionEvent
 import com.noop.oura.OuraSleepPhase
 import com.noop.oura.OuraSleepStage
+import com.noop.oura.OuraDecoders
+import com.noop.oura.OuraRecord
 import com.noop.oura.OuraSpO2
 import com.noop.oura.OuraTemp
 import org.junit.Assert.assertEquals
@@ -178,6 +180,18 @@ class OuraStreamMappingTest {
         assertEquals(base + 1, s.spo2.first().ts)
     }
 
+    /** 0x7B's scale is unpinned, so its decoded sample must not reach the SpO2 % column. Fed through the
+     *  real decoder so a decoder that regresses to the 0x6F tag fails here. Twin of the Swift
+     *  `testSpO2StableChannelIsDroppedNotPersisted`. */
+    @Test
+    fun spo2StableChannelIsDroppedNotPersisted() {
+        val stable = OuraDecoders.decodeSpO2Stable(
+            OuraRecord(type = 0x7B, ringTimestamp = 1, payload = intArrayOf(0x03, 0xCA)),
+        )!!
+        val s = OuraStreamMapping.streams(listOf(OuraEvent.Spo2(stable)), anchor)
+        assertTrue(s.spo2.isEmpty())
+    }
+
     // #1070: `spo2Sample` is keyed (deviceId, ts). A 0x6F record's 13 per-second samples used to be
     // written at the record's single `ts`, so twelve collided away on insert and the night was stored at
     // 1/13 resolution — permanently, since the ring trims its banked history once the offload is acked.
@@ -241,6 +255,18 @@ class OuraStreamMappingTest {
         val b = secondsFor(112)
         assertEquals(setOf(base + 100), a.toSet().intersect(b.toSet()))
         assertEquals(2 * n - 1, a.toSet().union(b.toSet()).size)
+    }
+
+    @Test
+    fun spo2DcRawChannelIsDroppedNotPersisted() {
+        // The 0x77 DC channel (unit "dc_raw") is a wildly different-scale raw PPG/perfusion signal
+        // (-9K to +11.7M in a real capture) - not SpO2 at all, so it must never reach the durable
+        // stream where a blind mean over `red` would be corrupted. Mirrors the Swift twin.
+        val s = OuraStreamMapping.streams(
+            listOf(OuraEvent.Spo2(OuraSpO2(ringTimestamp = 1, value = 11_709_098, unit = "dc_raw"))),
+            anchor,
+        )
+        assertTrue(s.spo2.isEmpty())
     }
 
     @Test

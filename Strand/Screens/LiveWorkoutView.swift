@@ -318,27 +318,59 @@ struct LiveWorkoutView: View {
 
     // MARK: - Bottom floating controls
 
-    /// Diameter shared by the exit and workout-type Liquid Glass circles so the centered timer stays
-    /// optically balanced against equal side chrome.
+    /// Diameter shared by every Liquid Glass circle in the bottom capsule, so the row reads as one
+    /// set of controls rather than a mix of sizes.
+    ///
+    /// It used to justify itself as keeping "the centered timer optically balanced against equal side
+    /// chrome". The side chrome has not been equal since #1533 put two circles on the left and one on
+    /// the right, and the timer is no longer centred against them — see `bottomControlRow`.
     private static let bottomControlDiameter: CGFloat = 56
     /// Tight inset so the glass circles nest into the capsule ends (stopwatch-bar proportions).
     private static let bottomBarInset: CGFloat = 4
 
-    /// One shared dark floating capsule: Liquid Glass exit · elapsed · Liquid Glass workout-type.
-    /// The timer is centered in the bar via ZStack; the glass circles sit in a separate HStack so
-    /// uneven label widths cannot pull the time off-center. The capsule itself is solid elevated
-    /// chrome — not Liquid Glass.
+    /// One shared dark floating capsule: discard · pause · elapsed · end.
+    ///
+    /// Laid out in ONE HStack, so the timer and the controls cannot overlap. #1068 built this as a
+    /// ZStack with the timer centred independently — deliberately, "so uneven label widths cannot pull
+    /// the time off-center" — and that held while the bar carried one circle per side. #1533 added the
+    /// discard and pause controls to the left group, and a centred 40pt timer then began where two
+    /// 56pt circles plus their spacing end: `0:02` merely touched the pause button, and anything wider
+    /// went under it. A field report of "two timers" was this one half-occluded, read as a duplicate of
+    /// the big TIME readout above. `.allowsHitTesting(false)` on the timer was already a tell that it
+    /// sat beneath something tappable.
+    ///
+    /// The trade is deliberate: the timer now sits centred in the space the buttons leave rather than
+    /// in the bar, so it reads slightly right of true centre because the left chrome is heavier. That
+    /// is the cost of the layout being unable to collide at all. The buttons keep the positions they
+    /// have shipped with — moving pause to the right would centre the timer better and would also move
+    /// a control under the thumb of everyone already using this screen, which is a worse trade than an
+    /// off-centre clock.
+    ///
+    /// It can still run out of ROOM, and the arithmetic is tighter than it looks: three 56pt circles
+    /// and their gaps leave the timer roughly 161pt on a 393pt screen, against about 144pt for a
+    /// `1:30:00` at 40pt monospaced. On a 375pt device, or at a larger Dynamic Type, that does not fit,
+    /// so the timer scales rather than overflowing the capsule. The alternative considered — padding
+    /// the timer clear of the widest group to keep true centring — left it barely 105pt and would have
+    /// truncated the same clock outright.
     private var bottomControlRow: some View {
-        ZStack {
+        HStack(spacing: NoopMetrics.space2) {
+            deleteWorkoutGlassButton
+            pauseWorkoutGlassButton
+            Spacer(minLength: NoopMetrics.space2)
             bottomElapsedTimer
                 .allowsHitTesting(false)
-
-            HStack(spacing: NoopMetrics.space2) {
-                deleteWorkoutGlassButton
-                pauseWorkoutGlassButton
-                Spacer(minLength: 0)
-                endWorkoutGlassButton
-            }
+                // Scaling down is the honest failure when the room runs out: truncating a clock to
+                // "1:30:0" would be worse than a smaller one. Same idiom the rest of this file uses.
+                .lineLimit(1)
+                .minimumScaleFactor(0.6)
+                // NO layoutPriority here, deliberately. Raising the timer's priority sizes it BEFORE
+                // the three circles, and those are fixed 56pt frames — inflexible, so when the space
+                // runs out they do not shrink, they clip. That inverts which element gives way: a
+                // half-drawn pause button is worse than a smaller clock, and a clipped control is the
+                // failure this whole change exists to remove. At equal priority the inflexible frames
+                // are satisfied first and the Text scales into what is left, which is the order wanted.
+            Spacer(minLength: NoopMetrics.space2)
+            endWorkoutGlassButton
         }
         .padding(Self.bottomBarInset)
         .background {
@@ -405,27 +437,14 @@ struct LiveWorkoutView: View {
         .accessibilityLabel(Text("Delete"))
     }
 
-    private var activeSportName: String {
-        model.activeWorkout?.sport ?? WorkoutCatalog.defaultSportName
-    }
-
-    private var workoutTypeGlassButton: some View {
-        Button {
-            // Placeholder — sport-type picker lands later; chrome and sizing stay put.
-        } label: {
-            WorkoutTypeIcon(workoutType: activeSportName, size: 22, weight: .semibold)
-                .frame(width: Self.bottomControlDiameter, height: Self.bottomControlDiameter)
-                .contentShape(Circle())
-        }
-        .nativeLiquidGlassWorkoutControl()
-        .accessibilityLabel(Text("\(WorkoutSource.displaySport(activeSportName)) workout"))
-    }
-
     // MARK: - Helpers
 
+    /// Delegates to the shared clock. This carried its own `%d:%02d` with NO hour roll-over, so a
+    /// 90-minute session read "90:00" here while Android's live workout screen read "1:30:00" — and,
+    /// after the card fix, while the iOS card that opens THIS screen read "1:30:00" too. The math was
+    /// already pause-aware (`workout.elapsed()`); only the formatting was the odd one out.
     private static func elapsed(seconds: TimeInterval) -> String {
-        let s = max(0, Int(seconds))
-        return String(format: "%d:%02d", s / 60, s % 60)
+        ActiveWorkoutClock.clock(Int(seconds))
     }
 
     private static func zoneName(_ zone: Int) -> String {
@@ -463,8 +482,8 @@ private extension View {
 /// power meter) feeding RSC/CSC/CPS ALONGSIDE heart rate. Only the fields the sensor actually sent
 /// render — each metric is dropped when its value is absent, and the WHOLE block (panel + entrance stagger)
 /// is hidden when nothing is present (`live.hasSensorMetrics`), so a plain HR-only workout looks exactly
-/// as before. Honest units: speed km/h, cadence per-minute (steps for running / rpm for cycling), power
-/// watts. Tinted with the Effort world so it reads as part of the hero, not a competing accent. Nothing
+/// as before. Speed follows the exercise-distance preference; cadence stays per-minute and power in watts.
+/// Tinted with the Effort world so it reads as part of the hero, not a competing accent. Nothing
 /// here touches HR / zone / effort.
 ///
 /// This is a standalone leaf that owns its OWN `@EnvironmentObject live` (the parent `LiveWorkoutView`
@@ -475,10 +494,18 @@ private extension View {
 /// so the rendered output matches the previous inline code.
 private struct SensorRowIfPresent: View {
     @EnvironmentObject private var live: LiveState
+    @AppStorage(UnitPrefs.systemKey) private var unitSystemRaw = UnitSystem.metric.rawValue
+    @AppStorage(UnitPrefs.distanceSystemKey) private var distanceSystemRaw = ""
+    private var distanceUnitSystem: UnitSystem {
+        UnitPrefs.resolveDistance(
+            system: UnitSystem(rawValue: unitSystemRaw) ?? .metric,
+            override: distanceSystemRaw)
+    }
 
     var body: some View {
         if live.hasSensorMetrics {
-            let speed = LiveState.formatSpeedKmh(live.sensorSpeedKmh)
+            let speed = UnitFormatter.speedFromKilometersPerHour(
+                live.sensorSpeedKmh, system: distanceUnitSystem)
             let cadence = LiveState.formatCadence(live.sensorCadence)
             let power = LiveState.formatPowerWatts(live.sensorPowerWatts)
             NoopCard(padding: NoopMetrics.cardInnerPadding, tint: StrandPalette.effortColor) {
@@ -487,7 +514,7 @@ private struct SensorRowIfPresent: View {
                         .font(StrandFont.overline).tracking(StrandFont.overlineTracking)
                         .foregroundStyle(StrandPalette.textSecondary)
                     HStack(spacing: NoopMetrics.gap) {
-                        if let speed { stat(String(localized: "SPEED"), "\(speed) km/h", tint: StrandPalette.effortColor) }
+                        if let speed { stat(String(localized: "SPEED"), speed, tint: StrandPalette.effortColor) }
                         if let cadence { stat(String(localized: "CADENCE"), "\(cadence)/min", tint: StrandPalette.effortColor) }
                         if let power { stat(String(localized: "POWER"), "\(power) W", tint: StrandPalette.effortColor) }
                     }
@@ -525,7 +552,12 @@ private struct SensorRowIfPresent: View {
 private struct DistancePaceRowIfPresent: View {
     @ObservedObject var recorder: GpsWorkoutRecorder
     @AppStorage(UnitPrefs.systemKey) private var unitSystemRaw = UnitSystem.metric.rawValue
-    private var unitSystem: UnitSystem { UnitSystem(rawValue: unitSystemRaw) ?? .metric }
+    @AppStorage(UnitPrefs.distanceSystemKey) private var distanceSystemRaw = ""
+    private var distanceUnitSystem: UnitSystem {
+        UnitPrefs.resolveDistance(
+            system: UnitSystem(rawValue: unitSystemRaw) ?? .metric,
+            override: distanceSystemRaw)
+    }
 
     var body: some View {
         // `isRecording` is essential, not just `pointCount > 0`: the recorder is a single long-lived
@@ -539,10 +571,10 @@ private struct DistancePaceRowIfPresent: View {
                     // "Distance"/"Pace" are already localized (reused from the detail view); uppercased for
                     // the caps stat grid, exactly as the detail route stats do.
                     stat(String(localized: "Distance").uppercased(),
-                         UnitFormatter.distanceFromMeters(recorder.distanceM, system: unitSystem))
+                         UnitFormatter.distanceFromMeters(recorder.distanceM, system: distanceUnitSystem))
                     statDivider
                     stat(String(localized: "Pace").uppercased(),
-                         UnitFormatter.paceFromSecPerKm(recorder.paceSecPerKm, system: unitSystem))
+                         UnitFormatter.paceFromSecPerKm(recorder.paceSecPerKm, system: distanceUnitSystem))
                 }
             }
         }

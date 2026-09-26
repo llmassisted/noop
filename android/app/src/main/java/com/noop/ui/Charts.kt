@@ -3,6 +3,8 @@ package com.noop.ui
 import com.noop.analytics.StagePercentages
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.layout.Box
@@ -12,7 +14,9 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clipToBounds
@@ -24,6 +28,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
+import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.nativeCanvas
@@ -33,6 +38,8 @@ import androidx.compose.ui.semantics.clearAndSetSemantics
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.compose.ui.platform.LocalDensity
 import java.time.Instant
 import java.time.ZoneId
 import java.time.format.DateTimeFormatter
@@ -104,16 +111,73 @@ private fun hypnogramSummary(stages: List<Pair<String, Float>>): String {
 /** Map a list of values into evenly-spaced points within [bounds], scaling y to the
  *  value range. A flat series (min == max) is centered vertically. Returns an empty
  *  list when there are fewer than two finite points. */
-private fun pointsFor(
+internal fun pointsFor(
     values: List<Double>,
     width: Float,
     height: Float,
     topPad: Float,
     bottomPad: Float,
+    yDomain: ClosedFloatingPointRange<Double>? = null,
+    timestamps: List<Long>? = null,
 ): List<Offset> {
     val clean = values.filter { it.isFinite() }
     if (clean.size < 2 || width <= 0f || height <= 0f) return emptyList()
-    return pointsFor(clean, width, height, topPad, bottomPad, clean.min(), clean.max())
+    val (lo, hi) = yBounds(clean, yDomain) ?: return emptyList()
+    return pointsFor(clean, width, height, topPad, bottomPad, timestamps, lo, hi)
+}
+
+/**
+ * The value range a chart plots into, shared by the series and by anything drawn ON the same scale.
+ *
+ * Extracted rather than repeated so a reference rule cannot drift from the series it annotates: a rule
+ * computed against its own bounds would sit at a plausible-looking wrong height the moment either copy
+ * changed, and nothing about the picture would say so.
+ *
+ * [values] must already be finite-filtered. Returns null when there is nothing to scale.
+ */
+internal fun yBounds(
+    values: List<Double>,
+    yDomain: ClosedFloatingPointRange<Double>?,
+): Pair<Double, Double>? {
+    if (values.isEmpty()) return null
+    // A supplied domain never HIDES a reading: it widens to contain anything outside it, so anchoring can
+    // only ever change the scale, never clip a value off the chart.
+    val lo = yDomain?.let { minOf(it.start, values.min()) } ?: values.min()
+    var hi = yDomain?.let { maxOf(it.endInclusive, values.max()) } ?: values.max()
+    // A series that is entirely flat AT the supplied floor would otherwise have zero span, and the
+    // zero-span fallback puts a flat line mid-chart. That is right when the scale came from the data
+    // (a steady 70bpm belongs in the middle) and wrong when a floor was asked for: an all-zero Effort
+    // week must sit ON the floor, which is the whole property the floor exists to give. Widening by one
+    // unit puts it there. Only when a domain was supplied, so auto-scaled charts keep their behaviour.
+    if (yDomain != null && hi <= lo) hi = lo + 1.0
+    return lo to hi
+}
+
+/**
+ * The y pixel for one [value] under the same scale [pointsFor] gives the series, or null when the value
+ * falls outside the plotted range.
+ *
+ * Null rather than a clamped edge on purpose: a rule pinned to the top or bottom of the plot would read as
+ * "your baseline is the highest value here", which is a different claim from "your baseline is off this
+ * chart". Drawing nothing says the second honestly.
+ */
+internal fun yForValue(
+    value: Double,
+    values: List<Double>,
+    height: Float,
+    topPad: Float,
+    bottomPad: Float,
+    yDomain: ClosedFloatingPointRange<Double>? = null,
+): Float? {
+    if (!value.isFinite() || height <= 0f) return null
+    val clean = values.filter { it.isFinite() }
+    if (clean.size < 2) return null
+    val (lo, hi) = yBounds(clean, yDomain) ?: return null
+    if (value < lo || value > hi) return null
+    val span = hi - lo
+    val usableH = (height - topPad - bottomPad).coerceAtLeast(1f)
+    val norm = if (span > 0.0) ((value - lo) / span).toFloat() else 0.5f
+    return topPad + (1f - norm) * usableH
 }
 
 private fun pointsFor(
@@ -122,6 +186,7 @@ private fun pointsFor(
     height: Float,
     topPad: Float,
     bottomPad: Float,
+    timestamps: List<Long>?,
     minV: Double,
     maxV: Double,
 ): List<Offset> {
@@ -129,14 +194,30 @@ private fun pointsFor(
 
     val span = (maxV - minV)
     val usableH = (height - topPad - bottomPad).coerceAtLeast(1f)
-    val stepX = if (values.size > 1) width / (values.size - 1) else width
+    val fractions = xFractions(values.size, timestamps)
 
     return values.mapIndexed { i, v ->
-        val x = stepX * i
+        val x = fractions[i] * width
         val norm = if (span > 0.0) ((v - minV) / span).toFloat() else 0.5f
         val y = topPad + (1f - norm) * usableH
         Offset(x, y)
     }
+}
+
+/**
+ * A dashed horizontal rule at [y], for a personal-baseline reference drawn UNDER the series.
+ *
+ * Dashed and faint on purpose: it is a reference the readings are judged against, not a second series. A
+ * solid stroke at the line's own weight would read as data.
+ */
+private fun DrawScope.drawReferenceRule(y: Float, color: Color) {
+    drawLine(
+        color = color,
+        start = Offset(0f, y),
+        end = Offset(size.width, y),
+        strokeWidth = 1f,
+        pathEffect = PathEffect.dashPathEffect(floatArrayOf(6f, 6f), 0f),
+    )
 }
 
 /** Draw the faint zero/empty baseline used when there is nothing to plot. */
@@ -198,6 +279,29 @@ fun Sparkline(
 
 // MARK: - LineChart
 
+/**
+ * Segment ids for a bucketed time series, changing wherever the series SKIPS a bucket.
+ *
+ * A bucket aggregate only emits rows for buckets that had samples, so an hour the strap was off simply
+ * is not in the list. The chart spaces points by index, so those two neighbours land side by side and
+ * the stroke joins them: a straight line drawn across time where nothing was measured, reading as a
+ * steady climb the wearer never had. Feeding these ids to [LineChart] breaks the stroke there instead,
+ * the same way an estimator change already breaks the VO2max line, so a gap looks like a gap.
+ *
+ * A step of exactly one bucket is contiguous. Anything longer means at least one bucket held nothing,
+ * and that is the break. No tolerance for "just one missing": a five-minute hole is still five minutes
+ * of invention, and the stress trace made the same call when it stopped drawing through unscored hours.
+ *
+ * Byte-identical twin of Swift `hrGapSegments`.
+ */
+internal fun hrGapSegmentIds(bucketTs: List<Long>, bucketSeconds: Long): List<String> {
+    var segment = 0
+    return bucketTs.mapIndexed { i, ts ->
+        if (i > 0 && ts - bucketTs[i - 1] > bucketSeconds) segment++
+        segment.toString()
+    }
+}
+
 /** Contiguous point-index ranges for a segmented line. A null/misaligned id list preserves the classic
  *  single-line behavior. Equal ids that reappear later become a new range because only adjacency connects. */
 internal fun lineChartSegmentRanges(count: Int, segmentIds: List<String>?): List<IntRange> {
@@ -246,6 +350,35 @@ fun LineChart(
     // Optional sequential line-segment ids, index-aligned with [values]. Adjacent unequal ids break the
     // stroke/fill without dropping either reading; used by VO₂max when its estimator changes.
     segmentIds: List<String>? = null,
+    /**
+     * Optional FIXED y-domain, instead of scaling to the data's own min/max.
+     *
+     * Auto-scaling makes every chart fill its full height whatever the metric actually did, so a Rest
+     * series moving 46..93 on a natural 0..100 scale is drawn exactly as violently as an Effort series
+     * moving 0..42. A reader cannot tell a calm metric from a volatile one, and a single low day rewrites
+     * the whole shape. Where a metric HAS a natural domain, saying so is what makes the height mean
+     * something.
+     *
+     * Default null keeps every existing caller byte-identical: only metrics that genuinely have a fixed
+     * range should pass one. A metric whose interesting variation is a narrow band inside its nominal
+     * range (blood oxygen lives at 90..100) is WORSE anchored, because the real movement flattens to a
+     * line at the top, so this is opt-in per metric rather than "percentages get 0..100".
+     */
+    yDomain: ClosedFloatingPointRange<Double>? = null,
+    /**
+     * Draw a small marker at every reading.
+     *
+     * A line alone cannot say WHERE the measurements are. On a daily trend with missing days that matters:
+     * a long straight run is either a steady week or one reading either side of a gap, and the line looks
+     * identical. Markers say which, without fragmenting the stroke the way breaking it did.
+     *
+     * Opt-in, so the dense live charts (HR at 1 Hz) are untouched, where a dot per sample would be noise.
+     */
+    showsPoints: Boolean = false,
+    // Optional personal-baseline reference, drawn as a dashed rule under the series. Null (the default)
+    // draws nothing, so every existing caller is byte-identical. A value outside the plotted range draws
+    // nothing either: `yForValue` returns null rather than clamping a rule to an edge it does not sit on.
+    baselineValue: Double? = null,
 ) {
     val cleanValues = remember(values) { values.filter { it.isFinite() } }
     // Timestamps filtered by the SAME finiteness cut as cleanValues so indices stay aligned;
@@ -263,14 +396,19 @@ fun LineChart(
         else values.indices.filter { values[it].isFinite() }.map { segmentIds[it] }
     }
     var selectedIndex by remember(cleanValues) { mutableIntStateOf(-1) }
+    // Hoisted, not recomputed per gesture event: the drag handler fires every frame and this allocates a
+    // list the length of the series. Keyed on both inputs so the gesture handlers can be keyed on IT:
+    // keying them on `cleanValues` alone would let a timestamp change leave them hit-testing against
+    // stale positions, highlighting one day while labelling another.
+    val xFracs = remember(cleanValues, cleanTimestamps) { xFractions(cleanValues.size, cleanTimestamps) }
     val interactiveModifier = if (selectionEnabled) {
         Modifier
-            .pointerInput(cleanValues) {
+            .pointerInput(cleanValues, xFracs) {
                 detectTapGestures(
                     onTap = { offset ->
                         if (cleanValues.size >= 2 && size.width > 0) {
                             selectedIndex = nearestIndexForX(
-                                count = cleanValues.size,
+                                fractions = xFracs,
                                 width = size.width.toFloat(),
                                 x = offset.x,
                             )
@@ -280,12 +418,12 @@ fun LineChart(
             }
             .then(
                 if (dragSelectionEnabled) {
-                    Modifier.pointerInput(cleanValues) {
+                    Modifier.pointerInput(cleanValues, xFracs) {
                         detectHorizontalDragGestures(
                             onDragStart = { start ->
                                 if (cleanValues.size < 2 || size.width <= 0f) return@detectHorizontalDragGestures
                                 selectedIndex = nearestIndexForX(
-                                    count = cleanValues.size,
+                                    fractions = xFracs,
                                     width = size.width.toFloat(),
                                     x = start.x,
                                 )
@@ -293,7 +431,7 @@ fun LineChart(
                             onHorizontalDrag = { change, _ ->
                                 if (cleanValues.size < 2 || size.width <= 0f) return@detectHorizontalDragGestures
                                 selectedIndex = nearestIndexForX(
-                                    count = cleanValues.size,
+                                    fractions = xFracs,
                                     width = size.width.toFloat(),
                                     x = change.position.x,
                                 )
@@ -349,7 +487,12 @@ fun LineChart(
                     val strokePx = 2.5f
                     val topPad = strokePx + 4f
                     val bottomPad = strokePx + 4f
-                    val pts = pointsFor(cleanValues, size.width, size.height, topPad, bottomPad)
+                    val pts = pointsFor(cleanValues, size.width, size.height, topPad, bottomPad, yDomain, cleanTimestamps)
+                    // Same bounds as the series, through the same helper, so the rule cannot end up at a
+                    // plausible-looking wrong height if either scale ever changes.
+                    val baselineY = baselineValue?.let {
+                        yForValue(it, cleanValues, size.height, topPad, bottomPad, yDomain)
+                    }
                     if (pts.isEmpty()) {
                         onDrawBehind { drawBaseline() }
                     } else {
@@ -386,12 +529,23 @@ fun LineChart(
                         }
                         val lineStroke = Stroke(width = strokePx, cap = StrokeCap.Round, join = StrokeJoin.Round)
                         onDrawBehind {
+                            // Under the fill and the line: the rule annotates the series rather than
+                            // competing with it.
+                            if (baselineY != null) drawReferenceRule(baselineY, Palette.hairlineStrong)
                             // Soft gradient fill under the curve.
                             if (fillBrush != null) {
                                 for (path in fillPaths) drawPath(path = path, brush = fillBrush)
                             }
                             // The line itself.
                             for (path in linePaths) drawPath(path = path, color = color, style = lineStroke)
+                            // Markers only while they can still be told apart. On the ALL range a daily
+                            // series is hundreds of points, and a dot every few pixels merges into a
+                            // thick smear that hides the line it was meant to annotate.
+                            val markerRadius = strokePx * 1.2f
+                            val spacing = if (pts.size > 1) size.width / (pts.size - 1) else size.width
+                            if (showsPoints && spacing >= markerRadius * 3f) {
+                                for (p in pts) drawCircle(color = color, radius = markerRadius, center = p)
+                            }
                             // A one-reading segment has no visible stroke. Method-segmented trends retain
                             // a small point so neither side of a method transition disappears.
                             if (cleanSegmentIds != null) {
@@ -408,7 +562,7 @@ fun LineChart(
                         val strokePx = 2.5f
                         val topPad = strokePx + 4f
                         val bottomPad = strokePx + 4f
-                        val pts = pointsFor(cleanValues, size.width, size.height, topPad, bottomPad)
+                        val pts = pointsFor(cleanValues, size.width, size.height, topPad, bottomPad, yDomain, cleanTimestamps)
                         if (selectedIndex in pts.indices) {
                             val p = pts[selectedIndex]
                             drawLine(
@@ -474,7 +628,9 @@ fun MultiLineChart(
         val bottomPad = strokePx + 4f
 
         cleanSeries.forEach { line ->
-            val pts = pointsFor(line.values, size.width, size.height, topPad, bottomPad, minV, maxV)
+            // MultiLineChart keeps index spacing: its series are index-aligned to each other, not to a
+            // shared clock, so positioning by time would need a per-series timeline it does not have.
+            val pts = pointsFor(line.values, size.width, size.height, topPad, bottomPad, null, minV, maxV)
             if (pts.isEmpty()) return@forEach
             val path = Path().apply {
                 moveTo(pts.first().x, pts.first().y)
@@ -489,12 +645,42 @@ fun MultiLineChart(
     }
 }
 
-private fun nearestIndexForX(count: Int, width: Float, x: Float): Int {
-    if (count <= 1 || width <= 0f) return 0
-    val step = width / (count - 1)
+/**
+ * Where each point sits horizontally, as a 0..1 fraction of the width.
+ *
+ * Index spacing puts every reading an equal step apart, so a four-day gap is drawn exactly like a one-day
+ * step. With per-point timestamps the position is proportional to TIME instead, which is what makes a gap
+ * occupy the width it actually spans, and what makes breaking the stroke across one read as "nothing
+ * measured here" rather than as a chopped line.
+ *
+ * Falls back to index spacing whenever time cannot order the points: no timestamps, a length mismatch, a
+ * zero span (every reading at the same instant), or a non-ascending sequence. Refusing rather than
+ * guessing, the same stance the rest of this file takes.
+ */
+internal fun xFractions(count: Int, timestamps: List<Long>?): List<Float> {
+    if (count <= 1) return List(count) { 0f }
+    val indexFractions = { List(count) { it.toFloat() / (count - 1) } }
+    if (timestamps == null || timestamps.size != count) return indexFractions()
+    if (timestamps.zipWithNext().any { (a, b) -> b < a }) return indexFractions()
+    val span = (timestamps.last() - timestamps.first()).toDouble()
+    if (span <= 0.0) return indexFractions()
+    return timestamps.map { ((it - timestamps.first()) / span).toFloat() }
+}
+
+/**
+ * The nearest point to a tapped x. Takes the SAME fractions the geometry used: deriving it from a uniform
+ * step independently would select the wrong reading the moment spacing stopped being uniform.
+ */
+private fun nearestIndexForX(fractions: List<Float>, width: Float, x: Float): Int {
+    if (fractions.size <= 1 || width <= 0f) return 0
     val clampedX = x.coerceIn(0f, width)
-    val raw = (clampedX / step).roundToInt()
-    return raw.coerceIn(0, count - 1)
+    var best = 0
+    var bestDist = Float.MAX_VALUE
+    fractions.forEachIndexed { i, f ->
+        val d = kotlin.math.abs(f * width - clampedX)
+        if (d < bestDist) { bestDist = d; best = i }
+    }
+    return best
 }
 
 /** The tap/drag pinpoint label: the caller's display formatter when supplied (#463), else the raw
@@ -548,20 +734,46 @@ fun BarChart(
     // Optional per-point display labels index-aligned with [values]; when supplied, a tap shows
     // "<label> · <value>" (e.g. "16 Jul · 87") instead of the bare value — parity with LineChart (#691).
     selectionLabels: List<String>? = null,
+    // The caller's own value formatter, so the scrub read-out prints what the surrounding screen prints
+    // (#1662). Without one the label falls back to [formatLineValue], which shows a decimal for any
+    // non-integer — so a metric whose headline is rounded answered "72.4" on tap against a "72" beside
+    // it. Same parameter, same default, same fallback as LineChart's.
+    formatValue: ((Double) -> String)? = null,
+    // Optional personal-baseline reference, drawn as a dashed rule under the bars. Mapped on the BAR
+    // scale, which is zero-based (`v / maxV`) rather than the line chart's min..max: a rule placed by the
+    // line chart's arithmetic would sit at a confidently wrong height here. Null draws nothing, and so
+    // does a value outside 0..maxV, for the same reason `yForValue` refuses to clamp one to an edge.
+    baselineValue: Double? = null,
+    // Optional metric-owned zero-based axis, e.g. 5,000 steps. Other charts retain their natural max.
+    axisStep: Double? = null,
+    showValueLabels: Boolean = false,
+    largeSelectionReadout: Boolean = false,
 ) {
     val cleanValues = remember(values) { values.map { if (it.isFinite() && it > 0.0) it else 0.0 } }
+    // The cleaned list flattens a non-finite value to 0.0 so it draws nothing, which is right for the
+    // GEOMETRY and wrong for the read-out: a caller passing NaN for "no reading that day" would have its
+    // empty slots answer "0.0" on tap, asserting a measurement that does not exist.
+    //
+    // The raw list decides only WHETHER a slot can be labelled, never what the label says. Cleaning also
+    // flattens NEGATIVES to zero, and at least one caller (sleep debt) may pass them, so reading the raw
+    // value for the number itself would quietly change what those charts report on tap.
+
     // cleanValues ZEROES (never drops) non-finite bars, so indices stay aligned with [values] and the
     // labels only need a size match — null when absent/mismatched so selection falls back to value-only.
     val cleanSelectionLabels = remember(values, selectionLabels) {
         if (selectionLabels == null || selectionLabels.size != values.size) null else selectionLabels
     }
-    var selectedIndex by remember(cleanValues) { mutableIntStateOf(-1) }
+    // Selection survives release, but belongs to this dataset (including its dates), not a slot.
+    var selectedIndex by remember(values, cleanSelectionLabels) { mutableIntStateOf(-1) }
+    var holding by remember(values, cleanSelectionLabels) { mutableStateOf(false) }
+    val density = LocalDensity.current
+    val axisWidth = if (axisStep != null && axisStep > 0) with(density) { 54.dp.toPx() } else 0f
     // Pre-laid value-label Paint, remembered rather than allocated inside the draw block (the old code
     // built a fresh android.graphics.Paint every draw). Keyed on color so it tracks a tint change.
-    val barLabelPaint = remember(color) {
+    val barLabelPaint = remember(color, density, largeSelectionReadout) {
         android.graphics.Paint().apply {
             isAntiAlias = true
-            textSize = 30f
+            textSize = if (largeSelectionReadout) with(density) { 22.sp.toPx() } else 30f
             this.color = color.copy(alpha = StrandAlpha.chartLabel).toArgb()
             typeface = android.graphics.Typeface.create(
                 android.graphics.Typeface.DEFAULT,
@@ -570,6 +782,11 @@ fun BarChart(
         }
     }
     val unselectedColor = remember(color) { color.copy(alpha = StrandAlpha.unselectedBar) }
+    val axisPaint = remember(density) { android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
+        this.color = Palette.textSecondary.toArgb()
+        textSize = with(density) { 10.sp.toPx() }
+    } }
+    val numberFormat = remember { java.text.NumberFormat.getIntegerInstance() }
 
     // ONE collapsed semantics node so the a11y delegate reads a single bar-series summary instead of
     // walking every bar. Summarises the (zeroed-non-finite) source values the bars are scaled from.
@@ -580,18 +797,25 @@ fun BarChart(
             .clearAndSetSemantics { contentDescription = axSummary }
             .then(
                 if (selectionEnabled) {
-                    Modifier.pointerInput(cleanValues) {
-                        detectTapGestures(
-                            onTap = { offset ->
-                                if (cleanValues.isNotEmpty() && size.width > 0) {
-                                    selectedIndex = nearestBarIndexForX(
-                                        count = cleanValues.size,
-                                        width = size.width.toFloat(),
-                                        x = offset.x,
-                                    )
-                                }
-                            },
-                        )
+                    Modifier.pointerInput(values, cleanSelectionLabels, axisWidth) {
+                        awaitEachGesture {
+                            val down = awaitFirstDown(requireUnconsumed = false)
+                            fun select(x: Float) {
+                                if (cleanValues.isNotEmpty() && size.width > axisWidth) selectedIndex = nearestBarIndexForX(
+                                    cleanValues.size, size.width.toFloat() - axisWidth, x - axisWidth,
+                                )
+                            }
+                            select(down.position.x)
+                            holding = true
+                            try {
+                                do {
+                                    val event = awaitPointerEvent()
+                                    val pointer = event.changes.firstOrNull { it.id == down.id } ?: break
+                                    select(pointer.position.x)
+                                    pointer.consume()
+                                } while (pointer.pressed)
+                            } finally { holding = false }
+                        }
                     }
                 } else {
                     Modifier
@@ -605,8 +829,8 @@ fun BarChart(
             // mean-bucket-downsampled to ~one bar per horizontal pixel first (visually identical: a 0.64×
             // bar at sub-pixel slots was an unreadable smear; the bucket mean preserves the silhouette).
             .drawWithCache {
-                val w = size.width
-                val h = size.height
+                val w = (size.width - axisWidth).coerceAtLeast(1f)
+                val h = size.height - if (axisWidth > 0) 12.dp.toPx() else 0f
                 // Mean-bucket-downsample so there is at most ~one bar per horizontal pixel. Above that the
                 // 0.64×-slot bars overlap into a solid block anyway, so the bucket mean is pixel-identical
                 // while cutting the bar count (and the per-frame work) to the visible resolution.
@@ -620,43 +844,93 @@ fun BarChart(
                 } else {
                     cleanValues
                 }
-                val maxV = clean.maxOrNull() ?: 0.0
+                val rawMax = clean.maxOrNull() ?: 0.0
+                val maxV = axisStep?.takeIf { it.isFinite() && it > 0 }?.let {
+                    (kotlin.math.ceil(rawMax / it) * it).coerceAtLeast(it)
+                } ?: rawMax
                 if (clean.isEmpty() || maxV <= 0.0 || w <= 0f || h <= 0f) {
                     onDrawBehind { drawBaseline() }
                 } else {
-                    val topPad = 4f
+                    val topPad = when {
+                        largeSelectionReadout -> 82.dp.toPx()
+                        showValueLabels -> 22.dp.toPx()
+                        else -> 4f
+                    }
                     val usableH = (h - topPad).coerceAtLeast(1f)
+                    val baselineY = baselineValue
+                        ?.takeIf { it.isFinite() && it >= 0.0 && it <= maxV }
+                        ?.let { h - ((it / maxV).toFloat().coerceIn(0f, 1f) * usableH) }
                     val slot = w / clean.size
                     val barWidth = (slot * 0.64f).coerceAtLeast(1f)
-                    val capRadius = (barWidth / 2f)
+                    val barCornerRadius = minOf(2.dp.toPx(), barWidth / 4f)
+                    val gridDash = PathEffect.dashPathEffect(floatArrayOf(5.dp.toPx(), 4.dp.toPx()))
                     // Precompute each bar's x centre + top y once.
-                    data class BarSeg(val cx: Float, val top: Float)
+                    data class BarSeg(val index: Int, val cx: Float, val top: Float)
                     val bars = ArrayList<BarSeg>(clean.size)
                     clean.forEachIndexed { i, v ->
                         val norm = (v / maxV).toFloat().coerceIn(0f, 1f)
                         val barHeight = (norm * usableH).coerceAtLeast(if (v > 0.0) 1f else 0f)
-                        if (barHeight <= 0f) return@forEachIndexed
-                        val cx = slot * i + slot / 2f
+                        val cx = axisWidth + slot * i + slot / 2f
                         val top = h - barHeight
-                        bars.add(BarSeg(cx, top))
+                        bars.add(BarSeg(i, cx, top))
                     }
                     onDrawBehind {
-                        bars.forEachIndexed { i, seg ->
-                            drawLine(
-                                color = if (selectionEnabled && i == selectedIndex) color else unselectedColor,
-                                start = Offset(seg.cx, h),
-                                end = Offset(seg.cx, (seg.top + capRadius).coerceAtMost(h)),
-                                strokeWidth = barWidth,
-                                cap = StrokeCap.Round,
-                            )
+                        // Under the bars, for the same reason as the line chart's: a reference, not data.
+                        if (baselineY != null) drawReferenceRule(baselineY, Palette.hairlineStrong)
+                        if (axisWidth > 0 && axisStep != null) {
+                            for (tick in 0..(maxV / axisStep).toInt()) {
+                                val v = tick * axisStep
+                                val y = h - (v / maxV).toFloat() * usableH
+                                if (v > 0 && v < maxV) drawLine(
+                                    Palette.textSecondary.copy(alpha = 0.45f), Offset(axisWidth, y), Offset(size.width, y),
+                                    strokeWidth = 1.5.dp.toPx(), pathEffect = gridDash,
+                                )
+                                drawContext.canvas.nativeCanvas.drawText(numberFormat.format(v), 0f, y + 3.dp.toPx(), axisPaint)
+                            }
                         }
-                        if (selectionEnabled && selectedIndex in clean.indices) {
+                        bars.forEach { seg ->
+                            val i = seg.index
+                            if (clean[i] > 0) drawRoundRect(
+                                color = when {
+                                    holding && i != selectedIndex -> color.copy(alpha = 0.22f)
+                                    selectionEnabled && (i == selectedIndex || largeSelectionReadout) -> color
+                                    else -> unselectedColor
+                                },
+                                topLeft = Offset(seg.cx - barWidth / 2f, seg.top),
+                                size = androidx.compose.ui.geometry.Size(barWidth, h - seg.top),
+                                cornerRadius = minOf(barCornerRadius, (h - seg.top) / 4f).let {
+                                    androidx.compose.ui.geometry.CornerRadius(it, it)
+                                },
+                            )
+                            if (selectionEnabled && i == selectedIndex && values.getOrNull(i)?.isFinite() == true) drawLine(
+                                color, Offset(seg.cx, seg.top), Offset(seg.cx, if (largeSelectionReadout) 62.dp.toPx() else 0f),
+                                strokeWidth = 1.dp.toPx(), pathEffect = PathEffect.dashPathEffect(floatArrayOf(5.dp.toPx(), 4.dp.toPx())),
+                            )
+                            if (showValueLabels && values.getOrNull(i)?.isFinite() == true) {
+                                val label = numberFormat.format(clean[i])
+                                val oldSize = axisPaint.textSize
+                                val measured = axisPaint.measureText(label)
+                                if (measured > slot - 2.dp.toPx()) axisPaint.textSize *= ((slot - 2.dp.toPx()) / measured).coerceAtLeast(0.5f)
+                                drawContext.canvas.nativeCanvas.drawText(label, seg.cx - axisPaint.measureText(label) / 2, seg.top - 4.dp.toPx(), axisPaint)
+                                axisPaint.textSize = oldSize
+                            }
+                        }
+                        val readoutIndex = if (selectedIndex < 0 && largeSelectionReadout) clean.lastIndex else selectedIndex
+                        val selectedRaw = values.getOrNull(readoutIndex)
+                        if (selectionEnabled && readoutIndex in clean.indices &&
+                            selectedRaw != null && selectedRaw.isFinite()
+                        ) {
                             drawContext.canvas.nativeCanvas.apply {
-                                drawText(
+                                if (largeSelectionReadout) {
+                                    drawText(cleanSelectionLabels?.getOrNull(readoutIndex).orEmpty(), 0f, 22.dp.toPx(), barLabelPaint)
+                                    drawText(formatValue?.invoke(clean[readoutIndex]) ?: numberFormat.format(clean[readoutIndex]), 0f, 50.dp.toPx(), barLabelPaint)
+                                } else drawText(
                                     lineChartSelectionLabel(
-                                        value = clean[selectedIndex],
-                                        formatValue = null,
-                                        pointLabel = cleanSelectionLabels?.getOrNull(selectedIndex),
+                                        // The CLEANED value, exactly as before, so no existing caller's
+                                        // label changes. The raw value only decides WHETHER to label.
+                                        value = clean[readoutIndex],
+                                        formatValue = formatValue,
+                                        pointLabel = cleanSelectionLabels?.getOrNull(readoutIndex),
                                     ),
                                     8f, 32f, barLabelPaint,
                                 )
@@ -970,6 +1244,14 @@ fun TimelineChart(
         points.filter { it.ts in windowStart..windowEnd && it.value.isFinite() }
     }
 
+    // #2368: rememberUpdatedState so the gesture handler always reads the LATEST window values
+    // without being recreated. The old code captured windowStart/windowEnd in the closure, but when
+    // onWindowChange triggered a recomposition with new values, the gesture handler still used the
+    // stale captured values, causing the graph to snap back. rememberUpdatedState gives us a stable
+    // reference that always points to the current value.
+    val currentWindowStart by rememberUpdatedState(windowStart)
+    val currentWindowEnd by rememberUpdatedState(windowEnd)
+
     // ONE collapsed semantics node (summary of the VISIBLE window) so the a11y delegate reads a single
     // line instead of walking the canvas; recomputes as the zoom/pan window changes. Changes no drawing.
     val axSummary = seriesSummary(vis.map { it.value }, "Timeline")
@@ -981,7 +1263,7 @@ fun TimelineChart(
             .pointerInput(bounds) {
                 detectTransformGestures { centroid, pan, zoom, _ ->
                     val width = size.width.toFloat().coerceAtLeast(1f)
-                    var window = windowStart..windowEnd
+                    var window = currentWindowStart..currentWindowEnd
                     // Pinch zooms about the gesture centroid; pan shifts the window.
                     if (zoom != 1f) {
                         val frac = (centroid.x / width).coerceIn(0f, 1f)

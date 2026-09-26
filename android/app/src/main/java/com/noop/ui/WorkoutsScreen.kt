@@ -24,9 +24,9 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.Accessible
 import android.app.DatePickerDialog
 import android.app.TimePickerDialog
-import androidx.compose.material.icons.filled.Accessible
 import androidx.compose.material.icons.filled.Hiking
 import androidx.compose.material.icons.filled.IceSkating
 import androidx.compose.material.icons.filled.Kayaking
@@ -110,8 +110,6 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.foundation.layout.BoxWithConstraints
-import androidx.compose.foundation.layout.defaultMinSize
-import androidx.compose.material3.ButtonDefaults
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Size
@@ -438,50 +436,27 @@ private fun PostLogNoteBanner(text: String) {
     }
 }
 
-/**
- * The "Add workout" pill — opens the manual add dialog. Shown on both the populated screen
- * (in the range bar) and the empty state, so a user with no imports can still log a session.
+/** The manual workout action, kept on an opaque design-system surface so the daytime scene cannot
+ *  wash out its fill or label (#1625).
  *
- * #1602: this sits beside a Material3 [Button] in the Workouts action row, and the two are built by
- * different mechanisms — so their metrics have to be matched deliberately or they drift. A `Button`
- * carries `defaultMinSize(minHeight = ButtonDefaults.MinHeight)`; a bare `Row` has no minimum at all,
- * so its height was whatever the content happened to be plus its padding, and the pair rendered at
- * different heights with different label sizes.
- *
- * Both are pinned here: the same minimum height as a `Button`, and the same [NoopType.captionNumber]
- * the Start button uses. iOS has never had this because both of its buttons come from ONE primitive
- * (`NoopButton`, differing only by `kind`) — the real fix is an Android equivalent, and until that
- * exists this is the seam that has to be held by hand.
+ *  [kind] is a parameter rather than a constant because this composable is BOTH halves of a pair and
+ *  a lone action, depending on the strap. Beside a live Start it is genuinely secondary. On the
+ *  unbonded branch it is the only thing on the screen and the whole reason that branch exists, so
+ *  pinning it to Secondary everywhere would render the emptiest state's single call to action as the
+ *  most de-emphasised control the design system has. The caller knows which it is; this does not.
  */
 @Composable
-internal fun AddWorkoutButton(onAdd: () -> Unit, modifier: Modifier = Modifier) {
-    Row(
+internal fun AddWorkoutButton(
+    onAdd: () -> Unit,
+    modifier: Modifier = Modifier,
+    kind: NoopButtonKind = NoopButtonKind.Secondary,
+) {
+    NoopButton(
+        text = uiString(R.string.l10n_workouts_screen_add_workout_a196a2cc),
+        leadingIcon = Icons.Filled.Add,
+        kind = kind,
         modifier = modifier
-            // Material's constant, not a NOOP token: the goal is not "be 40.dp", it is "be whatever the
-            // Button beside me is". Android has no control-height token to reach for (iOS keeps one,
-            // `NoopMetrics.controlHeight` = 48), and minting one at today's value would match by
-            // coincidence and drift the moment Material changed its default.
-            .defaultMinSize(minHeight = ButtonDefaults.MinHeight)
-            .clip(RoundedCornerShape(50))
-            .background(Palette.accentMuted)
-            .clickable(onClick = onAdd)
-            // 10.dp matches the Start button's contentPadding; this used to carry 14.dp. Invisible in
-            // English — width is fixed by `weight(1f)` — but this button already gives up 22.dp to an
-            // icon and spacer that Start has not, and the long translations are comparable in length
-            // ("Ajouter un entraînement" against "Démarrer l'entraînement"), so the extra 8.dp only
-            // decided which label ellipsized first.
-            .padding(horizontal = 10.dp, vertical = 10.dp),
-        horizontalArrangement = Arrangement.Center,
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Icon(Icons.Filled.Add, contentDescription = null, tint = Palette.accent, modifier = Modifier.size(16.dp))
-        Spacer(Modifier.width(6.dp))
-        Text(
-            uiString(R.string.l10n_workouts_screen_add_workout_a196a2cc),
-            style = NoopType.captionNumber,
-            color = Palette.accent,
-        )
-    }
+    ) { onAdd() }
 }
 
 // MARK: - Range control
@@ -963,7 +938,7 @@ private fun SummarySection(
 ) {
     // Imperial/Metric display preference (D#103). Distances are stored in metres; the toggle re-labels
     // them. Read here so a change recomposes the tiles. Display-only — nothing stored changes.
-    val unitSystem = UnitPrefs.system(LocalContext.current)
+    val unitSystem = UnitPrefs.distanceSystem(LocalContext.current)
     val totalCount = rows.size
     val totalTimeH = rows.mapNotNull { it.durationS }.sum() / 3600.0
     val totalKcal = rows.mapNotNull { it.energyKcal }.sum()
@@ -1483,7 +1458,7 @@ private fun SessionRow(
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-private fun WorkoutDetailSheet(vm: AppViewModel, row: WorkoutRow, onDismiss: () -> Unit) {
+internal fun WorkoutDetailSheet(vm: AppViewModel, row: WorkoutRow, onDismiss: () -> Unit) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
 
     // Per-window reads (#410): the HR curve (downsampled bucket means) and the HR-zone split. Zones
@@ -1550,7 +1525,7 @@ private fun WorkoutDetailSheet(vm: AppViewModel, row: WorkoutRow, onDismiss: () 
             if (row.maxHr != null) DetailRow("Max HR", "${row.maxHr} bpm")
             if (row.energyKcal != null) DetailRow("Calories", "${grouped(row.energyKcal)} kcal")
             if (row.distanceM != null) {
-                val unitSystem = UnitPrefs.system(LocalContext.current)
+                val unitSystem = UnitPrefs.distanceSystem(LocalContext.current)
                 DetailRow("Distance", UnitFormatter.distanceFromKilometers(row.distanceM / 1000.0, unitSystem))
             }
             steps?.let { DetailRow("Steps", "${grouped(it.toDouble())} steps") }  // #398, on-foot sports
@@ -1930,8 +1905,8 @@ private fun DetailRow(label: String, value: String) {
 }
 
 /**
- * Per-row overflow menu. A DETECTED bout can be re-labelled (becomes a real manual session that
- * survives re-detection) or dismissed (durably hidden so it doesn't come back). A MANUAL session can
+ * Per-row overflow menu. A grandfathered DETECTED bout can be re-labelled (becomes a real manual session)
+ * or dismissed (with its legacy marker retained). A MANUAL session can
  * be edited or deleted. Imported WHOOP / Apple rows are read-only — we never rewrite imported history
  * — but can be duplicated as an editable manual copy. (#107)
  */
@@ -2032,9 +2007,16 @@ private fun ManualWorkoutDialog(
     var startMillis by remember {
         mutableStateOf((editing?.startTs ?: (nowSec - 3_600)) * 1000L)
     }
+    // #2034: the END is state of record beside the start, not something re-derived from whole minutes on
+    // save. Duration stays as an input, two-way bound below, because "a 45 minute run" is how a session
+    // is often remembered; it is just no longer the thing that gets stored. A row opened only to fix its
+    // sport therefore keeps its exact span instead of snapping to the nearest minute.
+    var endMillis by remember {
+        mutableStateOf((editing?.endTs ?: (nowSec - 3_600 + 45 * 60)) * 1000L)
+    }
     var durationMin by remember {
         mutableStateOf(
-            editing?.let { (((it.durationS ?: (it.endTs - it.startTs).toDouble()) / 60).roundToInt()).coerceAtLeast(1).toString() }
+            editing?.let { WorkoutEditing.spanDurationMin(it.startTs, it.endTs).coerceAtLeast(1).toString() }
                 ?: "45",
         )
     }
@@ -2043,7 +2025,7 @@ private fun ManualWorkoutDialog(
     // #1195: distance as ENTERED, in the user's unit (km/mi), converted to stored metres on save. Pre-fill
     // in that unit so an untouched edit round-trips the stored value. Period decimal (Locale.US) to match
     // toDoubleOrNull parsing, exactly as the macOS ManualWorkoutSheet does.
-    val unitSystem = UnitPrefs.system(LocalContext.current)
+    val unitSystem = UnitPrefs.distanceSystem(LocalContext.current)
     val distUnit = if (unitSystem == UnitSystem.IMPERIAL) "mi" else "km"
     var distance by remember {
         mutableStateOf(
@@ -2067,16 +2049,18 @@ private fun ManualWorkoutDialog(
         val distM: Double? = if (dText.isEmpty()) null else dText.toDoubleOrNull()?.let { v ->
             (if (unitSystem == UnitSystem.IMPERIAL) v / UnitFormatter.MILES_PER_KILOMETER else v) * 1000.0
         }
-        if (dur == null) return@run null
+        // A typed duration that is blank, unparseable or non-positive blocks Save. It also means the
+        // binding below did NOT move the end, so the span on screen would not be the span saved.
+        if (dur == null || dur <= 0) return@run null
         if (hrText.isNotEmpty() && hr == null) return@run null
         if (kText.isNotEmpty() && k == null) return@run null
         if (dText.isNotEmpty() && distM == null) return@run null
         // A manual workout ALWAYS lives under the strap source (where live-tracked sessions land), so
         // a "duplicate as manual" of an imported apple-health/whoop row never writes back to it.
-        val base = WorkoutEditing.buildManualRow(
+        val base = WorkoutEditing.buildManualRowFromSpan(
             deviceId = "my-whoop",
             startSeconds = (startMillis / 1000L).coerceAtMost(nowSec),
-            durationMin = dur,
+            endSeconds = endMillis / 1000L,
             sport = sport,
             avgHr = hr,
             energyKcal = k,
@@ -2114,8 +2098,43 @@ private fun ManualWorkoutDialog(
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
                 SportPickerField(sport, onChange = { sport = it })
-                StartTimeField(startMillis, onPick = { startMillis = it })
-                DialogField("Duration (minutes)", durationMin, onChange = { durationMin = it }, numeric = true)
+                SpanTimeField(
+                    uiString(R.string.l10n_workouts_screen_started_faa9e7e7),
+                    startMillis,
+                    // Moving the start keeps the LENGTH and carries the end with it. Computed from the
+                    // old start before it is reassigned, or the span would collapse.
+                    //
+                    // Clamped so the carried end cannot land in the future: dragging the start forward
+                    // would otherwise push the end past now and invalidate the sheet on a move that
+                    // looks entirely reasonable. Clamping the START keeps the length the user set,
+                    // where clamping the end would silently shorten the session instead.
+                    onPick = { picked ->
+                        val spanMillis = endMillis - startMillis
+                        val newStart = picked.coerceAtMost(System.currentTimeMillis() - spanMillis)
+                        endMillis = WorkoutEditing.endAfterStartMove(
+                            startMillis / 1000L, endMillis / 1000L, newStart / 1000L,
+                        ) * 1000L
+                        startMillis = newStart
+                    },
+                )
+                SpanTimeField(
+                    uiString(R.string.l10n_workouts_screen_ended_90303d8d),
+                    endMillis,
+                    onPick = { picked ->
+                        endMillis = picked
+                        durationMin = WorkoutEditing.spanDurationMin(startMillis / 1000L, picked / 1000L).toString()
+                    },
+                )
+                DialogField(
+                    "Duration (minutes)", durationMin,
+                    onChange = { typed ->
+                        durationMin = typed
+                        typed.trim().toIntOrNull()?.takeIf { it > 0 }?.let { m ->
+                            endMillis = WorkoutEditing.endForDuration(startMillis / 1000L, m) * 1000L
+                        }
+                    },
+                    numeric = true,
+                )
                 DialogField("Distance ($distUnit, optional)", distance, onChange = { distance = it }, numeric = true)
                 DialogField("Avg HR (bpm, optional)", avgHr, onChange = { avgHr = it }, numeric = true)
                 DialogField("Calories (kcal, optional)", kcal, onChange = { kcal = it }, numeric = true)
@@ -2179,16 +2198,20 @@ private fun ManualWorkoutDialog(
  * match (an exact catalogue hit, or a free-typed sport, collapses it).
  */
 /**
- * Absolute start date + time for the manual add/edit dialog — parity with the macOS/iOS sheet's
- * DatePicker (#598; the old Android sheet only took "minutes ago"). A tappable row that opens a date
- * picker, then chains to a time picker, both capped at now (you can't log a workout in the future).
+ * Absolute date + time for one end of the manual add/edit dialog's span — parity with the macOS/iOS
+ * sheet's DatePicker (#598; the old Android sheet only took "minutes ago"). A tappable row that opens a
+ * date picker, then chains to a time picker, both capped at now (you can't log a workout in the future).
+ *
+ * [caption] names which end it is, so the same picker serves Started and Ended (#2034). The cap is why
+ * the start's own handler clamps as well: this stops a FUTURE pick, not a pick that drags the carried
+ * end past now.
  */
 @Composable
-private fun StartTimeField(millis: Long, onPick: (Long) -> Unit) {
+private fun SpanTimeField(caption: String, millis: Long, onPick: (Long) -> Unit) {
     val context = LocalContext.current
     val label = remember(millis) { SimpleDateFormat("d MMM yyyy, h:mm a", Locale.US).format(java.util.Date(millis)) }
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        Text(uiString(R.string.l10n_workouts_screen_started_faa9e7e7), style = NoopType.footnote, color = Palette.textSecondary)
+        Text(caption, style = NoopType.footnote, color = Palette.textSecondary)
         Row(
             modifier = Modifier
                 .fillMaxWidth()
@@ -2570,7 +2593,7 @@ internal fun sportIcon(sport: String): ImageVector = when (sport.lowercase().tri
     "volleyball", "sand volleyball", "spikeball" -> Icons.Filled.SportsVolleyball
     "golf" -> Icons.Filled.SportsGolf
     "climbing" -> Icons.Filled.Terrain
-    "wheelchair" -> Icons.Filled.Accessible
+    "wheelchair" -> Icons.AutoMirrored.Filled.Accessible
     "gaming" -> Icons.Filled.SportsEsports
     "motor racing" -> Icons.Filled.SportsMotorsports
     else -> sportIconFuzzy(sport)
@@ -2584,7 +2607,9 @@ private fun sportIconFuzzy(sport: String): ImageVector {
         s.contains("run") -> Icons.AutoMirrored.Filled.DirectionsRun
         s.contains("walk") || s.contains("hike") -> Icons.AutoMirrored.Filled.DirectionsWalk
         s.contains("cycl") || s.contains("bike") || s.contains("ride") || s.contains("spin") -> Icons.AutoMirrored.Filled.DirectionsBike
-        s.contains("swim") || s.contains("polo") -> Icons.Filled.Pool
+        // "polo" alone used to land here, which gave horseback Polo a swimming-pool glyph. Water polo
+        // is matched exactly above; this only needs to catch the free-typed run-together spelling.
+        s.contains("swim") || s.contains("water polo") || s.contains("waterpolo") -> Icons.Filled.Pool
         s.contains("row") -> Icons.Filled.Rowing
         s.contains("kayak") || s.contains("paddle") -> Icons.Filled.Kayaking
         s.contains("surf") -> Icons.Filled.Surfing
@@ -2600,7 +2625,7 @@ private fun sportIconFuzzy(sport: String): ImageVector {
         s.contains("softball") || s.contains("baseball") || s.contains("bowl") -> Icons.Filled.SportsBaseball
         s.contains("yoga") || s.contains("pilates") || s.contains("meditat") || s.contains("stretch") -> Icons.Filled.SelfImprovement
         s.contains("strength") || s.contains("weight") || s.contains("lift") -> Icons.Filled.FitnessCenter
-        s.contains("box") || s.contains("martial") || s.contains("jiu") || s.contains("judo") || s.contains("karate") || s.contains("wrestl") || s.contains("fenc") -> Icons.Filled.SportsMartialArts
+        s.contains("box") || s.contains("martial") || s.contains("jiu") || s.contains("judo") || s.contains("karate") || s.contains("muay") || s.contains("wrestl") || s.contains("fenc") -> Icons.Filled.SportsMartialArts
         s.contains("hiit") || s.contains("functional") || s.contains("gymnast") -> Icons.Filled.SportsGymnastics
         s.contains("tennis") || s.contains("padel") || s.contains("pickle") || s.contains("squash") || s.contains("racquet") || s.contains("badminton") -> Icons.Filled.SportsTennis
         s.contains("volleyball") -> Icons.Filled.SportsVolleyball
@@ -2610,7 +2635,7 @@ private fun sportIconFuzzy(sport: String): ImageVector {
         s.contains("basketball") || s.contains("netball") -> Icons.Filled.SportsBasketball
         s.contains("gaming") || s.contains("esport") -> Icons.Filled.SportsEsports
         s.contains("motor") || s.contains("racing") -> Icons.Filled.SportsMotorsports
-        s.contains("wheelchair") -> Icons.Filled.Accessible
+        s.contains("wheelchair") -> Icons.AutoMirrored.Filled.Accessible
         else -> Icons.Filled.FitnessCenter
     }
 }

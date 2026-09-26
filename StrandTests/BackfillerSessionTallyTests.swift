@@ -285,4 +285,99 @@ final class BackfillerSessionTallyTests: XCTestCase {
                       "a truly-empty no-cursor session must still warn the strap has no banked history")
         XCTAssertTrue(joined.contains("fully charge it"))
     }
+
+    // MARK: - #1683: the stale counterpart to futureRtcLine
+
+    /// A strap that stopped banking weeks ago and one that is caught up produced the SAME "banked no
+    /// sensor history" line, so neither the user nor a triager could tell them apart. That is why #1541
+    /// stayed open and unactionable.
+    func testACaughtUpOrBrieflyIdleStrapIsNotStale() {
+        let now = 1_700_000_000
+        XCTAssertFalse(Backfiller.isStaleNewestRecord(newestUnix: nil, wallNowUnix: now))
+        XCTAssertFalse(Backfiller.isStaleNewestRecord(newestUnix: 0, wallNowUnix: now))
+        XCTAssertFalse(Backfiller.isStaleNewestRecord(newestUnix: now, wallNowUnix: now))
+        XCTAssertFalse(Backfiller.isStaleNewestRecord(newestUnix: now - 86_400, wallNowUnix: now),
+                       "one night off-wrist is ordinary and must stay silent")
+    }
+
+    func testTwoDaysIsTheBoundaryAndQualifies() {
+        let now = 1_700_000_000
+        XCTAssertTrue(Backfiller.isStaleNewestRecord(newestUnix: now - 2 * 86_400, wallNowUnix: now))
+    }
+
+    /// A future-dated record belongs to `futureRtcLine`; this rule must not also claim it.
+    func testAFutureDatedRecordIsNotStale() {
+        let now = 1_700_000_000
+        XCTAssertFalse(Backfiller.isStaleNewestRecord(newestUnix: now + 86_400, wallNowUnix: now))
+    }
+
+    /// The numbers from the #1683 capture: newest stored record 1785692420 against a wall clock of
+    /// 1787820941. The user was told only "banked no sensor history"; this says three weeks.
+    func testStaleRecordLineReportsTheRealCaptureAsTwentyFourDays() {
+        let line = Backfiller.staleRecordLine(newestUnix: 1_785_692_420, wallNowUnix: 1_787_820_941)
+        XCTAssertTrue(line.contains("about 24 day(s) old"), line)
+        XCTAssertTrue(line.contains("stopped saving history"), line)
+        // The part the old advice omitted: charging alone has already been retried every connect.
+        XCTAssertTrue(line.contains("re-sends the clock on every connect"), line)
+        // The test that tells the user whether NOOP is even involved.
+        XCTAssertTrue(line.contains("official WHOOP app"), line)
+        XCTAssertFalse(line.contains("\u{2014}"))
+    }
+
+    /// States the fact, never the diagnosis: a drawered strap shows the same number innocently.
+    func testStaleRecordLineDoesNotAssertACorruptClock() {
+        let line = Backfiller.staleRecordLine(newestUnix: 1_700_000_000 - 20 * 86_400,
+                                              wallNowUnix: 1_700_000_000)
+        XCTAssertFalse(line.contains("corrupt"), line)
+        XCTAssertTrue(line.contains("If you have worn it"), line)
+    }
+
+    /// The banner is what the user READS; the log line needs a capture export. The standing banner
+    /// omitted the age entirely and PROMISED that charging "should" work - advice NOOP has effectively
+    /// retried on every connect for weeks, since it re-sends SET_CLOCK each time.
+    func testStaleRecordBannerDatesTheSilenceAndPromisesNothing() {
+        let line = Backfiller.staleRecordBanner(newestUnix: 1_785_692_420, wallNowUnix: 1_787_820_941)
+        XCTAssertTrue(line.contains("about 24 day(s) old"), line)
+        XCTAssertTrue(line.contains("If you have been wearing it"), line)
+        XCTAssertTrue(line.contains("official WHOOP app"), line)
+        XCTAssertFalse(line.contains("should start banking again"), line)
+        XCTAssertFalse(line.contains("\u{2014}"))
+    }
+
+    // ---- #1754: two distinct empty-offload banners ------------------------------------------
+
+    /// The no-flash-cursor banner (trim=0xFFFFFFFF) names the clock/charge cause — the existing copy,
+    /// now a named constant so the caller's branch reads as a choice between two states.
+    func testNoFlashCursorBannerNamesClockAndCharge() {
+        let line = Backfiller.noFlashCursorBanner
+        XCTAssertTrue(line.contains("no stored history to hand over"), line)
+        XCTAssertTrue(line.contains("clock has lost sync"), line)
+        XCTAssertTrue(line.contains("Fully charge it to 100%"), line)
+        XCTAssertFalse(line.contains("sensor front-end"), line)
+    }
+
+    /// The no-sensor-records banner (valid trim, advancing write pointer, zero rows) does NOT name
+    /// the clock — it points at the sensor front-end or power state, and asks for a strap log rather
+    /// than promising that charging will fix it.
+    func testNoSensorRecordsBannerDoesNotBlameTheClock() {
+        let line = Backfiller.noSensorRecordsBanner
+        XCTAssertTrue(line.contains("no sensor records"), line)
+        XCTAssertTrue(line.contains("flash cursor is valid and advancing"), line)
+        XCTAssertTrue(line.contains("not a clock problem"), line)
+        XCTAssertTrue(line.contains("sensor front-end or power"), line)
+        XCTAssertFalse(line.contains("clock has lost sync"), line)
+        XCTAssertFalse(line.contains("Fully charge it to 100%"), line)
+    }
+
+    /// The two banners must be distinct strings — a caller choosing between them must not get the
+    /// same copy for both states.
+    func testTheTwoBannersAreDistinct() {
+        XCTAssertNotEqual(Backfiller.noFlashCursorBanner, Backfiller.noSensorRecordsBanner)
+    }
+
+    /// No em-dash in either banner (project rule).
+    func testNoEmDashInEitherBanner() {
+        XCTAssertFalse(Backfiller.noFlashCursorBanner.contains("\u{2014}"))
+        XCTAssertFalse(Backfiller.noSensorRecordsBanner.contains("\u{2014}"))
+    }
 }

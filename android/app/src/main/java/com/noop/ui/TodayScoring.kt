@@ -60,6 +60,7 @@ internal fun recoveryCalibrationNights(
 internal fun recoveryChargeDrivers(
     days: List<DailyMetric>,
     displayDay: DailyMetric?,
+    hrvBaselineEpoch: Double = 0.0,
 ): List<ChargeDriver> {
     val day = displayDay ?: return emptyList()
     val hrv = day.avgHrv ?: return emptyList()
@@ -67,8 +68,17 @@ internal fun recoveryChargeDrivers(
 
     // Whole-history fold (oldest first), exactly as the engine seeds baselines2.
     val ordered = days.sortedBy { it.day }
-    val hrvBase = Baselines.foldHistory(ordered.map { it.avgHrv }, Baselines.hrvCfg)
+    // #2315: fold with the recalibration epoch, exactly as the engine does. Without it these rows
+    // scored against the WHOLE history while the headline scored against the post-Recalibrate nights,
+    // so the Charge page showed two different baselines for the same metric. `0.0` (no recalibration)
+    // delegates to the plain fold, so a user who never recalibrated sees no change at all.
+    val hrvBase = Baselines.foldHistory(
+        ordered.map { it.avgHrv }, ordered.map { it.day }, Baselines.hrvCfg, hrvBaselineEpoch,
+    )
     if (!hrvBase.usable) return emptyList()
+    // Passed on ungated, unlike respBase below, and that is deliberate since #1988: chargeDrivers
+    // gates this one itself, for its score AND for the row it builds from the baseline directly.
+    // Gating again here would be harmless but would suggest the callee does not, which it does.
     val rhrBase = Baselines.foldHistory(ordered.map { it.restingHr?.toDouble() }, Baselines.restingHRCfg)
     val respBase = Baselines.foldHistory(ordered.map { it.respRateBpm }, Baselines.respCfg).takeIf { it.usable }
 
@@ -97,9 +107,14 @@ internal fun recoveryChargeDrivers(
 internal fun chargeConfidenceTier(
     days: List<DailyMetric>,
     displayDay: DailyMetric?,
+    hrvBaselineEpoch: Double = 0.0,
 ): ScoreConfidence {
-    val hrvBase: BaselineState =
-        Baselines.foldHistory(days.sortedBy { it.day }.map { it.avgHrv }, Baselines.hrvCfg)
+    // #2315: epoch-aware for the same reason as the drivers above. The tier is read off the baseline
+    // the ring rides, so folding a different history here could badge a scored day as CALIBRATING.
+    val ordered = days.sortedBy { it.day }
+    val hrvBase: BaselineState = Baselines.foldHistory(
+        ordered.map { it.avgHrv }, ordered.map { it.day }, Baselines.hrvCfg, hrvBaselineEpoch,
+    )
     return ScoreConfidence.forCharge(displayDay?.recovery, hrvBase)
 }
 
@@ -288,6 +303,36 @@ internal fun scoreStateForToday(
 }
 
 /**
+ * #1164/#2012 — should today's Rest be MARKED provisional? When the strap has banked records not yet
+ * offloaded, the Rest score is computed from partial data and may change once the full night lands and
+ * `analyzeRecent` re-scores it. Saying so reads honestly instead of as a bug when the number moves.
+ *
+ * True means "caption it as pending", NOT "hide it". #2012: the number used to be withheld on both
+ * surfaces while this was true, so a user whose night was scored saw nothing for as long as the strap
+ * had anything left to send, which on a continuously banking strap is most of the day. A number that
+ * may still move is not the same as no number, and it is the one the screen exists to show.
+ *
+ * Two honest signals, either of which means more data is expected:
+ * - [backfilling]: an offload is actively running right now (data is draining).
+ * - [historyPendingSync]: the strap reports banked records newer than our local frontier (the strap has
+ *   data we haven't ingested yet, even when no offload is running — e.g. right after connect, before
+ *   the first offload starts).
+ *
+ * Only applies to TODAY (a past day's score is final — no more data is coming for it) and only when a
+ * Rest score EXISTS (pending annotates a score; it never fabricates one where there is none). Pure +
+ * unit-tested. Mirror EXACTLY of Swift `TodayView.restPendingSync`.
+ */
+internal fun restPendingSync(
+    restScore: Double?,
+    backfilling: Boolean,
+    historyPendingSync: Boolean,
+    isTodaySelected: Boolean,
+): Boolean {
+    if (!isTodaySelected || restScore == null) return false
+    return backfilling || historyPendingSync
+}
+
+/**
  * The honest live-recording state of the strap, for the Today/Live chip. Derived from the BLE connection
  * + last-sync timestamp so people always know it's working, or know it isn't and why. Mirrors Swift
  * `RecordingState` 1:1 (same three cases, same [title] / [detail] copy, same [tone]).
@@ -383,7 +428,13 @@ internal fun recordingStateFor(
  *  [Hidden] only on a true cold start (the building-scores note owns that case). Previously this
  *  priority order lived inline inside the `@Composable`, where it could not be unit-tested. */
 sealed class SyncChipState {
-    data class Syncing(val chunks: Int) : SyncChipState()
+    /** #689/#815 follow-up: [pagesBehind] is the strap's GET_DATA_RANGE ring backlog, sampled ONCE at
+     *  connect (`LiveState.pagesBehindAtConnect`) and never re-polled, so it is a figure "at connect"
+     *  rather than a live one — the copy says so. null when no reply has landed this session, when the
+     *  frame did not decode, AND when the backlog is zero: a chip that is actively syncing while
+     *  claiming "0 pages behind" contradicts itself, and a zero sample carries nothing a reader can
+     *  act on. [resolve] applies that rule so both platforms drop the same case. */
+    data class Syncing(val chunks: Int, val pagesBehind: Int? = null) : SyncChipState()
     data class Synced(val agoText: String) : SyncChipState()
     object ExperimentalLive : SyncChipState()
     object Hidden : SyncChipState()
@@ -406,8 +457,12 @@ sealed class SyncChipState {
             lastSyncAtSec: Long?,
             historySyncExperimental: Boolean,
             nowSec: Long,
+            pagesBehind: Int? = null,
         ): SyncChipState = when {
-            backfilling -> Syncing(chunks)
+            // `takeIf { it > 0 }` is the zero rule from [Syncing.pagesBehind], applied here so the
+            // decision is pure and testable rather than sitting in the composable. Negative can't come
+            // off the wire (the decoder returns a ring delta), but the bound reads the same either way.
+            backfilling -> Syncing(chunks, pagesBehind?.takeIf { it > 0 })
             lastSyncAtSec != null -> Synced(shortSyncAgo(lastSyncAtSec, nowSec))
             historySyncExperimental -> ExperimentalLive
             else -> Hidden

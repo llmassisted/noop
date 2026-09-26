@@ -158,6 +158,11 @@ final class SourceCoordinator: ObservableObject {
     ///   • WHOOP active after a strap → stop the strap source + resume WHOOP.
     ///   • A generic strap → pause WHOOP + (re)start `StandardHRSource` for that strap's id.
     func activeDeviceChanged(to id: String) {
+        // #2208: publish whose device this is BEFORE any branch returns. Readouts that show the strap's
+        // charge need it to know the number is not the active device's, and the Apple Watch path below
+        // short-circuits, so setting it inside the WHOOP/strap split would leave a watch reading `true`.
+        live.activeIsWhoop = isWhoop(id)
+
         // The Apple Watch is a HealthKit source with `peripheralId: nil` (see `AppleWatchDevice`): there is
         // no BLE peripheral to connect, and the M1 live read happens entirely in `HealthKitBridge`'s
         // observers + sync, off this BLE coordinator. Short-circuit BEFORE the WHOOP branch so we never
@@ -434,6 +439,7 @@ final class SourceCoordinator: ObservableObject {
             onModel: { [registry] model in registry.setModel(id, model: model) },   // #772: correct a name-guessed gen
             onSerial: { [weak self] serial in self?.adoptOuraSerial(currentId: id, serial: serial) },  // #771
             onsetKeying: { UserDefaults.standard.bool(forKey: AppModel.ouraOnsetKeyingKey) },  // #1284 residual 3
+            notifyMaskFull: { UserDefaults.standard.bool(forKey: AppModel.ouraNotifyMaskFullKey) },  // packed-notification A/B
             adoptIntent: adoptIntent)
         if adoptIntent { straplog("Oura: adopt consent granted - this session may install NOOP's key") }
         ouraSource = source   // the published typed handle for the adopt mirror (same object as activeSource)
@@ -475,6 +481,13 @@ final class SourceCoordinator: ObservableObject {
     /// active. Per OURA_PROTOCOL.md s3.2 the install is a one-time, consent-gated provisioning write.
     func requestOuraAdopt(deviceId: String) {
         pendingAdoptDeviceId = deviceId
+    }
+
+    /// The user asked the Live console to reconnect the active ring (#2305). Forwarded to the live Oura
+    /// source's own `reconnect()`; a no-op when no ring is the live source, so the console can only ever
+    /// reconnect the device it is showing — never a WHOOP, never a ring that is not active.
+    func reconnectActiveRing() {
+        ouraSource?.reconnect()
     }
 
     /// Stop the live non-WHOOP source (standard strap, FTMS machine, Huami device, or Oura ring) and drop
@@ -588,7 +601,9 @@ final class SourceCoordinator: ObservableObject {
     }
 
     /// A device is WHOOP when its brand is "WHOOP" (the seeded `my-whoop` row's brand).
-    static func isWhoop(_ device: PairedDevice) -> Bool {
-        device.id == "my-whoop" || device.brand.caseInsensitiveCompare("WHOOP") == .orderedSame
-    }
+    ///
+    /// #1881 gave the BLE engine the same question to answer, so the rule now lives in ONE place
+    /// (`SourceIdentity`, beside `PairedDevice`) and this delegates. Two spellings of "is this a WHOOP"
+    /// that could disagree is precisely how a strap's samples end up filed under a ring.
+    static func isWhoop(_ device: PairedDevice) -> Bool { SourceIdentity.isWhoop(device) }
 }

@@ -120,6 +120,71 @@ class TodayExplainabilityTest {
         assertEquals(R.string.score_state_title_needs_strap, needsStrap.titleRes)
     }
 
+    // ── #1164 — Rest pending-sync (provisional before full offload) ─────────────────────────────────
+
+    /**
+     * The flag that drives this must not be able to latch on forever, which is the failure both
+     * `shouldAutoContinue` guards already exist for: a future-dated strap clock reads ahead of ANY
+     * frontier, and a phantom gap advertises newer data while banking no rows. Either would pin Rest to
+     * "Pending sync" forever. Since #2012 that no longer withholds the number, so it is a stuck caption
+     * rather than a blank ring — still wrong, and still a contract the caller owes.
+     * The helper itself is pure, so this pins the CONTRACT it is handed: a caller must not pass true
+     * for a gap it cannot close.
+     */
+    @Test
+    fun restPendingSyncOnlyMarksWhileThereIsAScoreAndTodayIsSelected() {
+        // A gap the caller has judged real: mark the score provisional (#2012: mark, never hide).
+        assertTrue(restPendingSync(restScore = 71.0, backfilling = false,
+                                   historyPendingSync = true, isTodaySelected = true))
+        // No score yet: calibrating / no-data states own that, so never claim a pending score.
+        assertFalse(restPendingSync(restScore = null, backfilling = true,
+                                    historyPendingSync = true, isTodaySelected = true))
+        // A past day is final, whatever the strap is doing now.
+        assertFalse(restPendingSync(restScore = 71.0, backfilling = true,
+                                    historyPendingSync = true, isTodaySelected = false))
+        // Caught up and idle: no caption. The number shows either way since #2012.
+        assertFalse(restPendingSync(restScore = 71.0, backfilling = false,
+                                    historyPendingSync = false, isTodaySelected = true))
+    }
+
+    @Test
+    fun restPendingSync_backfillingWithRestScore_showsPending() {
+        // An active offload with today's Rest present → the score is captioned as pending.
+        assertTrue(restPendingSync(restScore = 72.0, backfilling = true, historyPendingSync = false, isTodaySelected = true))
+    }
+
+    @Test
+    fun restPendingSync_historyPendingWithRestScore_showsPending() {
+        // The strap has banked records not yet ingested even with no active offload → pending.
+        // This is the right-after-connect window before the first offload starts.
+        assertTrue(restPendingSync(restScore = 72.0, backfilling = false, historyPendingSync = true, isTodaySelected = true))
+    }
+
+    @Test
+    fun restPendingSync_noSignalsWithRestScore_notPending() {
+        // No pending signals and a Rest score → NOT pending. The normal finalized state.
+        assertFalse(restPendingSync(restScore = 72.0, backfilling = false, historyPendingSync = false, isTodaySelected = true))
+    }
+
+    @Test
+    fun restPendingSync_noRestScore_neverPending_evenWithSignals() {
+        // No Rest score → never pending (pending annotates an existing NUMBER; it does not fabricate
+        // one when there is none — the calibrating/no-data states already cover that).
+        assertFalse(restPendingSync(restScore = null, backfilling = true, historyPendingSync = true, isTodaySelected = true))
+    }
+
+    @Test
+    fun restPendingSync_pastDayNeverPending_evenWithSignals() {
+        // A PAST day is never pending — its score is final, no more data is coming for it.
+        assertFalse(restPendingSync(restScore = 72.0, backfilling = true, historyPendingSync = true, isTodaySelected = false))
+    }
+
+    @Test
+    fun restPendingSync_bothSignals_showsPending() {
+        // Both signals true → pending (either signal alone is enough; both is the strongest case).
+        assertTrue(restPendingSync(restScore = 72.0, backfilling = true, historyPendingSync = true, isTodaySelected = true))
+    }
+
     // ── COMPONENT 3 — recording state ────────────────────────────────────────────────────────────────
 
     @Test
@@ -422,10 +487,44 @@ class TodayExplainabilityTest {
 
     @Test
     fun pullToSync_onlyEnabledWhenConnectedBondedAndIdle() {
-        assertTrue(todayPullToSyncEnabled(connected = true, bonded = true, backfilling = false))
+        assertTrue(todayPullToSyncEnabled(
+            connected = true, bonded = true, backfilling = false, historyReady = true))
 
-        assertFalse(todayPullToSyncEnabled(connected = false, bonded = true, backfilling = false))
-        assertFalse(todayPullToSyncEnabled(connected = true, bonded = false, backfilling = false))
-        assertFalse(todayPullToSyncEnabled(connected = true, bonded = true, backfilling = true))
+        assertFalse(todayPullToSyncEnabled(
+            connected = false, bonded = true, backfilling = false, historyReady = true))
+        assertFalse(todayPullToSyncEnabled(
+            connected = true, bonded = false, backfilling = false, historyReady = true))
+        assertFalse(todayPullToSyncEnabled(
+            connected = true, bonded = true, backfilling = true, historyReady = true))
+    }
+
+    /**
+     * THE case this argument exists for, from the field: a WHOOP 5/MG that has never completed a
+     * handshake. `bonded` is true — the live-HR path sets it — so every other condition passes and the
+     * gesture was offered, accepted, and then refused by `beginBackfill`'s own `connectHandshakeDone`
+     * gate with nothing shown. Reported four times as "refresh doesn't work"; it worked, it was silent.
+     */
+    @Test
+    fun `a strap that cannot hand over history does not offer the gesture`() {
+        assertFalse(todayPullToSyncEnabled(
+            connected = true, bonded = true, backfilling = false, historyReady = false))
+    }
+
+    /**
+     * The no-regression contract, and the reason this is safe to add: the new argument mirrors a
+     * precondition `beginBackfill` ALREADY enforces, so the gesture can only disappear where the sync
+     * would have been declined regardless. It can never withhold a refresh that would have run — which
+     * is exactly what a strap-family check could not promise.
+     */
+    @Test
+    fun `it never withholds a sync that would have run`() {
+        // Every combination the old three-argument gate allowed still passes, provided the client would
+        // actually have accepted it. historyReady=true is that condition, not an extra hurdle.
+        assertTrue(todayPullToSyncEnabled(
+            connected = true, bonded = true, backfilling = false, historyReady = true))
+        // And it catches a case a family check would miss entirely: a WHOOP 4.0 whose bond has not landed
+        // is just as unable to sync as an unpaired 5/MG, and its gesture is just as dead.
+        assertFalse(todayPullToSyncEnabled(
+            connected = true, bonded = false, backfilling = false, historyReady = false))
     }
 }

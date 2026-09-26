@@ -71,6 +71,9 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.noop.analytics.AnalyticsEngine
+import com.noop.analytics.CircadianEngine
+import com.noop.analytics.HypnogramCoverage
+import com.noop.analytics.ScoreConfidence
 import com.noop.analytics.SleepEditGuard
 import com.noop.analytics.SleepGroupEdit
 import com.noop.analytics.SleepStageTotals
@@ -80,14 +83,78 @@ import com.noop.data.SleepSession
 import com.noop.data.WhoopRepository
 import kotlinx.coroutines.launch
 import java.time.LocalDate
+import java.time.Instant
+import java.time.ZoneId
 import java.text.SimpleDateFormat
 import java.util.Calendar
 import java.util.Date
 import java.util.Locale
+import kotlin.math.floor
 import kotlin.math.max
 import kotlin.math.roundToInt
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.setValue
+import com.noop.analytics.ClockFormat
+
+internal enum class SleepFreshnessStatus {
+    SYNCING, CALCULATING, SYNC_FAILED, AWAITING_SYNC, NOT_DETECTED,
+}
+
+private data class SleepFreshnessLiveSnapshot(
+    val backfilling: Boolean,
+    val analyzing: Boolean,
+    val lastSyncAt: Long?,
+    val syncFailed: Boolean,
+)
+
+/** Pure priority ladder for the expected current night. The missing states wait until morning so opening
+ * Sleep at 02:00 does not claim the night still in progress has been missed. Swift twin:
+ * `resolveSleepFreshness`. */
+internal fun resolveSleepFreshness(
+    hasCurrentNight: Boolean,
+    morningReady: Boolean,
+    syncing: Boolean,
+    calculating: Boolean,
+    syncedSinceDayStart: Boolean,
+    syncFailed: Boolean,
+): SleepFreshnessStatus? {
+    if (syncing) return SleepFreshnessStatus.SYNCING
+    // #2108: a night already in hand outranks CALCULATING. It used to sit below, so `hasCurrentNight`
+    // could only silence the missing-night states and a finished night was structurally unable to
+    // silence this one: the banner said "detecting and staging the night now" directly above that same
+    // night scored, timed and staged on screen. A note that contradicts the content beside it is worse
+    // than no note, and one that is always on is read by nobody the day it matters. SYNCING stays above,
+    // because data still arriving can genuinely change what is shown.
+    if (hasCurrentNight) return null
+    if (calculating) return SleepFreshnessStatus.CALCULATING
+    if (!morningReady) return null
+    if (syncFailed) return SleepFreshnessStatus.SYNC_FAILED
+    return if (syncedSinceDayStart) SleepFreshnessStatus.NOT_DETECTED
+    else SleepFreshnessStatus.AWAITING_SYNC
+}
+
+@Composable
+private fun SleepFreshnessNote(status: SleepFreshnessStatus, chunks: Int) {
+    when (status) {
+        SleepFreshnessStatus.SYNCING -> SyncingHistoryNote(chunks)
+        SleepFreshnessStatus.CALCULATING -> DataPendingNote(
+            title = stringResource(R.string.sleep_status_calculating_title),
+            body = stringResource(R.string.sleep_status_calculating_body),
+        )
+        SleepFreshnessStatus.SYNC_FAILED -> DataPendingNote(
+            title = stringResource(R.string.sleep_status_sync_failed_title),
+            body = stringResource(R.string.sleep_status_sync_failed_body),
+        )
+        SleepFreshnessStatus.AWAITING_SYNC -> DataPendingNote(
+            title = stringResource(R.string.sleep_status_waiting_title),
+            body = stringResource(R.string.sleep_status_waiting_body),
+        )
+        SleepFreshnessStatus.NOT_DETECTED -> DataPendingNote(
+            title = stringResource(R.string.sleep_status_not_detected_title),
+            body = stringResource(R.string.sleep_status_not_detected_body),
+        )
+    }
+}
 
 /**
  * Sleep — Whoop-sleep clarity on the locked Noop component system. Mirrors the macOS
@@ -127,6 +194,9 @@ fun SleepScreen(
     // the sleep surfaces name a ring-PROVIDED night's provenance "Oura" and flag its split as the ring's
     // RAW on-device stages. Read/UI only, no stored value. Mirrors macOS Repository.activeDeviceIsOura.
     val activeIsOura = com.noop.data.DeviceBrandCatalog.isOura(vm.activeStrapId)
+    // #1680: the body-clock phase behind the 24 h dial section. Same snapshot the Health screen reads for
+    // BodyClockCard, so the two surfaces cannot disagree about the estimate.
+    val v5Signals by vm.v5Signals.collectAsStateWithLifecycle()
 
     // PERF (#scroll-jank): the BLE live state ticks ~1Hz. This screen reads `live` ONLY for the
     // "syncing history" note (backfilling + the chunk count), so reading the whole `live` object at
@@ -139,6 +209,18 @@ fun SleepScreen(
         derivedStateOf {
             val s = live
             if (s.backfilling) s.syncChunksThisSession else null
+        }
+    }
+    // Like backfillNote, collapse the 1 Hz BLE state to only fields that can change the missing-night
+    // banner. Live HR ticks then remain equality-identical and do not recompose this heavy screen.
+    val freshnessLive by remember {
+        derivedStateOf {
+            SleepFreshnessLiveSnapshot(
+                backfilling = live.backfilling,
+                analyzing = live.analyzingHistory,
+                lastSyncAt = live.lastSyncAt,
+                syncFailed = live.lastSyncError != null,
+            )
         }
     }
 
@@ -226,9 +308,9 @@ fun SleepScreen(
     // and lays them along the hypnogram's timeline. A block with no stored series stays absent (honest empty
     // state for older rows whose motionJSON is NULL). Mirrors iOS SleepView.motionByStart.
     var motionByStart by remember { mutableStateOf<Map<Long, List<Double>>>(emptyMap()) }
-    LaunchedEffect(sleeps) {
+    LaunchedEffect(sleeps, vm.activeStrapId) {
         motionByStart = runCatching {
-            vm.repo.sessionMotions("my-whoop", sleeps.map { it.startTs })
+            vm.repo.sessionMotions(vm.activeStrapId, sleeps)
         }.getOrDefault(emptyMap())
     }
 
@@ -379,6 +461,13 @@ fun SleepScreen(
         )
     }
 
+    // Debt credit is the canonical main-night DailyMetric total PLUS actual asleep minutes from blocks
+    // outside that main-night group. Keep the nap sum separate: Rest, the hero and daily total deliberately
+    // remain main-night-only. Stage-less naps add no guessed in-bed time. Mirrors Swift SleepView. (#525)
+    val napSleepMinByDay = remember(sleeps, habitualMidsleep) {
+        napSleepMinutesByDay(sleeps, habitualMidsleep)
+    }
+
     // Tapping a metric tile opens a full-history detail sheet for that one metric. (PR #260)
     val metricSheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     var detailMetricKey by remember { mutableStateOf<String?>(null) }
@@ -390,7 +479,12 @@ fun SleepScreen(
             containerColor = Palette.surfaceRaised,
             contentColor = Palette.textPrimary,
         ) {
-            SleepMetricDetailSheetContent(vm = vm, key = currentDetailKey)
+            SleepMetricDetailSheetContent(
+                vm = vm,
+                key = currentDetailKey,
+                imported = imported,
+                napSleepMinByDay = napSleepMinByDay,
+            )
         }
     }
 
@@ -405,18 +499,14 @@ fun SleepScreen(
             .map { (_, blocks) -> blocks.sortedBy { it.effectiveStartTs } }
     }
 
-    // Debt credit is the canonical main-night DailyMetric total PLUS actual asleep minutes from blocks
-    // outside that main-night group. Keep the nap sum separate: Rest, the hero and daily total deliberately
-    // remain main-night-only. Stage-less naps add no guessed in-bed time. Mirrors Swift SleepView. (#525)
-    val napSleepMinByDay = remember(sleeps, habitualMidsleep) {
-        napSleepMinutesByDay(sleeps, habitualMidsleep)
-    }
-
     // The navigated night, decoded once per (offset, data) change — chevron taps re-pick
     // instantly without re-parsing stagesJSON on every recomposition. The offset now indexes
     // DAYS (navDays), so a day with a detected night always resolves to that night. (#160, #59)
-    val night = remember(nightOffset, navDays, days, habitualMidsleep, motionByStart) {
-        selectNight(navDays, days, nightOffset, habitualMidsleep, motionByStart)
+    // #1821: the reader's chosen clock, resolved once for this screen. It is a remember KEY below so
+    // changing the setting re-derives the labels instead of leaving the old clock on screen.
+    val is24h = ClockPrefs.uses24Hour(LocalContext.current)
+    val night = remember(nightOffset, navDays, days, habitualMidsleep, motionByStart, is24h) {
+        selectNight(navDays, days, nightOffset, habitualMidsleep, motionByStart, is24h = is24h)
     }
 
     // #1311: label the carousel by CALENDAR nights, not the flat recorded-night index — a night with no
@@ -431,12 +521,30 @@ fun SleepScreen(
     // at-a-glance TILES, the debt ledger, the personal need and the trend stay full-history /
     // latest-anchored, matching iOS SleepView. `selectedDay` re-points only the hero. Model is null
     // when the selected day has no stage minutes. (#5)
-    val model = remember(days, night, imported, napSleepMinByDay, sleeps) {
+    val model = remember(days, night, imported, napSleepMinByDay, sleeps, is24h) {
         buildSleepModel(days, night?.session, imported, selectedDay = night?.dayKey,
             heroStages = night?.groupStages, heroSegments = night?.groupSegments,
-            napSleepMinByDay = napSleepMinByDay, sessions = sleeps)
+            napSleepMinByDay = napSleepMinByDay, sessions = sleeps, is24h = is24h)
     }
     val display = remember(model, night) { heroDisplay(model, night) }
+
+    val sleepFreshness = remember(sleeps, freshnessLive) {
+        val zone = ZoneId.systemDefault()
+        val now = Instant.now().atZone(zone)
+        val latestWake = sleeps.maxOfOrNull { it.endTs }
+        val current = latestWake?.let {
+            Instant.ofEpochSecond(it).atZone(zone).toLocalDate() == now.toLocalDate()
+        } ?: false
+        val dayStart = now.toLocalDate().atStartOfDay(zone).toEpochSecond()
+        resolveSleepFreshness(
+            hasCurrentNight = current,
+            morningReady = now.hour >= 6,
+            syncing = freshnessLive.backfilling,
+            calculating = freshnessLive.analyzing,
+            syncedSinceDayStart = (freshnessLive.lastSyncAt ?: 0L) >= dayStart,
+            syncFailed = freshnessLive.syncFailed,
+        )
+    }
 
     // #940: ONE stage-less SELECTED day (typically the newest, after an impossible hand-edit staged
     // it all-awake) must not hide the whole tab's history. The tiles / ledger / trends are
@@ -540,13 +648,14 @@ fun SleepScreen(
                 )
             }
         }
+        sleepFreshness?.let { status ->
+            item { SleepFreshnessNote(status, backfillNote ?: 0) }
+        }
         // #940: the empty state is ONLY for a truly empty history. A newest day that merely fails
         // to merge (the phantom-edit shape) keeps the hero (night != null) and the full-history
         // tiles (tilesModel != null), so intact older nights are never hidden behind "no nights".
         if (tilesModel == null && night == null) {
-            // While the strap is mid-offload, say so — "No nights" reads as final otherwise (#77).
             item {
-                if (backfillNote != null) SyncingHistoryNote(chunks = backfillNote!!)
                 SleepEmptyState()
             }
         } else {
@@ -641,7 +750,9 @@ fun SleepScreen(
                 display = display,
                 activeIsOura = activeIsOura,
                 nightHr = nightHr,
-                clock = night?.clockLabel ?: model?.clockLabel,
+                // #2199: never the SleepModel's label here — that model resolves to the NEWEST night, not
+                // the browsed one. See navHeaderClockLabel, where the rule and its tests live.
+                clock = navHeaderClockLabel(night?.clockLabel, navDays, nightOffset, is24h),
                 nightOffset = nightOffset,
                 lastIndex = max(navDays.lastIndex, 0),
                 nightLabel = nightLabel,
@@ -749,6 +860,32 @@ fun SleepScreen(
                 // selected day's model failed to build, exactly as iOS keeps them while browsing. Each
                 // `tilesModel?.let { m -> ... }` binds a non-null local so the smart-cast carries across
                 // the item {} lambda boundary — same guard the old `if (tilesModel != null)` block used.
+                // The 24 h body-clock dial (#1680). Drawn only for a fit that is at least WIDE: an
+                // UNREADABLE rhythm has no phase to compare a night against, and an empty ring would read
+                // as a broken chart rather than as "not enough data". It is a reorderable Sleep section,
+                // so anyone who does not want it hides it in Arrange — the same affordance every other
+                // card here already has, rather than a setting of its own. Mirrors SleepView.
+                SleepSection.BODY_CLOCK -> {
+                    val phase = v5Signals?.bodyClock
+                    val session = night?.session
+                    if (phase != null &&
+                        phase.confidence != CircadianEngine.PhaseConfidence.UNREADABLE &&
+                        session != null
+                    ) {
+                        item(key = k) {
+                            SleepReorderableSection(k, sleepListState, sleepSectionDrag, persistSleepOrder) {
+                                Column {
+                                    Spacer(Modifier.height(Metrics.selectorTopUp))
+                                    BodyClockDialCard(
+                                        estimate = phase,
+                                        actualBedHour = localClockHour(session.effectiveStartTs),
+                                        actualWakeHour = localClockHour(session.endTs),
+                                    )
+                                }
+                            }
+                        }
+                    }
+                }
                 SleepSection.NIGHT_DETAIL -> tilesModel?.let { m ->
                     item(key = k) {
                         SleepReorderableSection(k, sleepListState, sleepSectionDrag, persistSleepOrder) {
@@ -895,7 +1032,9 @@ private fun SleepUndoBanner(undo: SleepUndoState, onUndo: () -> Unit) {
     // it retired something), but `first()` on an empty list would take the whole Sleep tab down — too
     // steep a price for a strip that is only ever informational. Render nothing instead.
     val session = undo.sessions.firstOrNull() ?: return
-    val timeFmt = SimpleDateFormat("HH:mm", Locale.US)
+    val timeFmt = SimpleDateFormat(                                   // #1821
+        ClockFormat.hourMinutePattern(ClockPrefs.uses24Hour(LocalContext.current)), Locale.US,
+    )
     // effectiveStartTs is the displayed onset (a userEdited night's corrected bed time), matching iOS.
     val startText = timeFmt.format(java.util.Date(session.effectiveStartTs * 1000L))
     val endText = timeFmt.format(java.util.Date(session.endTs * 1000L))
@@ -1318,12 +1457,51 @@ private fun Hero(
             // so the larger Awake / smaller Deep+REM here isn't misread as the polished numbers the Oura app
             // shows for the same night (the app post-processes the same stream). Mirrors iOS ouraRawStagesNote.
             if (activeIsOura) OuraRawStagesNote()
+            // #H9: when the engine's Rest confidence flags this night's staging as low-confidence (a
+            // high-efficiency night whose deep+REM share is implausibly low, so a likely staging miss
+            // rather than a real night with no restorative sleep), say so honestly under the breakdown
+            // instead of presenting the suspect split as fact. Read straight off ScoreConfidence.forRest,
+            // the SAME engine call the daily pass uses, so the badge cannot disagree with the score.
+            // Efficiency prefers the stored value and falls back to asleep/in-bed, mirroring iOS
+            // efficiencyPct. Mirrors iOS SleepView.stageStagingIsLowConfidence.
+            // Stored first, as a fraction (rows have carried both 0..1 and 0..100); otherwise
+            // asleep/in-bed, capped, which is what iOS falls back to when no row value exists.
+            val h9Efficiency = session?.efficiency?.let { if (it <= 1.0) it else it / 100.0 }
+                ?: (if (s.total > 0.0) minOf(1.0, s.asleep / s.total) else null)
+            if (h9Efficiency != null &&
+                stageStagingIsLowConfidence(s.asleep, s.deep, s.rem, h9Efficiency)
+            ) {
+                SleepLowConfidenceNote()
+            }
+            // The blocks both caveats below read, hoisted so the two cannot consult a different set.
+            // `stagingSparse` is a DAY-level verdict stamped onto EVERY block (see iOS
+            // stageShowsIncompleteNote: "each carries the day's value"), so asking only the main block is
+            // asking one witness out of several. On a night whose main block is imported, and therefore
+            // carries a nil flag, while a computed fragment carries true, iOS warned and Android stayed
+            // silent, though both claimed to mirror each other.
+            val dayBlocks = sleepDayBlocks(session, heroGroup)
             // #345 follow-up: a night staged on SPARSE motion coverage can UNDER-detect and read short
-            // ("slept 8h, shows 1h"). Say so honestly, gated on the persisted stagingSparse flag (the day's
-            // SleepStager.isGravitySparse verdict). `session` is the REAL main block (selectNight's edit
-            // anchor), so it carries the flag; nil (imported / pre-migration) is never flagged. Mirrors iOS
-            // SleepView.stageIncompleteNote.
-            if (session?.stagingSparse == true) SleepIncompleteNote()
+            // ("slept 8h, shows 1h"). Say so honestly — but only when the night ACTUALLY reads short, since
+            // the stagingSparse flag alone fires on one long motion dropout at any night length. The rule
+            // and its reasoning live in [stageSparseNoteApplies]. A nil flag (imported / pre-migration
+            // block) is never itself a flag. Mirrors iOS SleepView.stageShowsIncompleteNote.
+            if (stageSparseNoteApplies(anyBlockStagingSparse(dayBlocks), s.asleep)) {
+                SleepIncompleteNote()
+            }
+            // #1716 — a device-provided hypnogram assembled from records that never all arrived leaves a
+            // HOLE in the timeline while the session still spans the whole night, so a night we saw a
+            // fraction of renders as a complete one. Asked of the bridged main-night GROUP (the quantity
+            // analyzeDay gates on), never of one fragment. This is the only place the coverage guard
+            // becomes visible: the engine's matching Rest downgrade lands in a transient DayResult field
+            // no screen reads. Mirrors iOS SleepView.stagePartialNote.
+            val stageCoverage = HypnogramCoverage.groupFraction(
+                dayBlocks.map {
+                    HypnogramCoverage.Fragment(it.stagesJSON, (it.endTs - it.startTs).toDouble())
+                }
+            )
+            if (stageCoverage != null && stageCoverage < HypnogramCoverage.minCoverage) {
+                SleepPartialNote(stageCoverage)
+            }
         }
         // Naps card (#508/#518): the day's blocks OTHER than the main night, each editable / deletable
         // with the SAME mechanism main sleep uses, plus a Main / Nap(s) / Total split so what drives the
@@ -1438,6 +1616,127 @@ private fun OuraRawStagesNote() {
     }
 }
 
+/**
+ * Pure #H9 gate (unit-testable without a Composable) — true when a night's staging is low-confidence: a
+ * high-efficiency night whose deep+REM share is below the restorative floor. Built on the engine's own
+ * [ScoreConfidence.forRest] so the UI flag and the persisted Rest confidence agree. [asleepMin], [deepMin]
+ * and [remMin] are minutes; [efficiency] is asleep/in-bed in [0,1]. Returns false for an unstaged or
+ * zero-asleep night (no staging to doubt).
+ *
+ * Twin of Swift `SleepView.isStagingLowConfidence`. That one has carried "Mirror EXACTLY in Kotlin" since
+ * #H9 and had no Kotlin mirror: an Android night with high efficiency and implausibly little deep+REM was
+ * shown as fact while the same night warned on iPhone and Mac.
+ *
+ * Nothing flagged it, and no phrasing here would. The parity ledger's scope is the engine, protocol and
+ * storage packages; neither `Strand/Screens` nor `com/noop/ui` is scanned, so every mirror claim in the UI
+ * layer is unverified BY CONSTRUCTION. The reference above is written in a form the ledger would resolve,
+ * so it starts working the day the scope widens, but today it is a promise to a reader rather than a
+ * checked fact.
+ */
+internal fun stageStagingIsLowConfidence(
+    asleepMin: Double,
+    deepMin: Double,
+    remMin: Double,
+    efficiency: Double,
+): Boolean {
+    if (asleepMin <= 0.0) return false
+    val restorativeMin = maxOf(0.0, deepMin) + maxOf(0.0, remMin)
+    // An UNSTAGED night (no deep+REM at all) has no staging split to doubt — its base Rest confidence
+    // already reads honestly as BUILDING (NOT a downgrade), so it must never be flagged. Only a night that
+    // DID stage some sleep can be a suspicious "high efficiency yet implausibly little restorative" miss.
+    if (restorativeMin <= 0.0) return false
+    val tier = ScoreConfidence.forRest(
+        hasSession = true,
+        hasStagedSleep = true,
+        asleepSeconds = asleepMin * 60.0,
+        restorativeSeconds = restorativeMin * 60.0,
+        efficiency = efficiency,
+    )
+    // The H9 overload only DOWNGRADES SOLID to BUILDING on the suspicious case; a genuinely
+    // low-restorative-AND-low-efficiency night keeps its honest base tier and isn't flagged here.
+    return tier == ScoreConfidence.BUILDING &&
+        (restorativeMin / asleepMin) < ScoreConfidence.restorativeLowConfidenceShare &&
+        efficiency >= ScoreConfidence.highEfficiencyThreshold
+}
+
+/** The H9 low-confidence note shown beneath the stage breakdown: a warning-tinted badge plus a one-line
+ *  honest explanation. No faked stages, no tanked score, just a clear "treat this split with care" so a
+ *  user does not read a likely staging miss as a real deep/REM drought. Mirrors iOS stageLowConfidenceNote. */
+@Composable
+private fun SleepLowConfidenceNote() {
+    Row(
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalAlignment = Alignment.Top,
+        modifier = Modifier.padding(horizontal = 2.dp),
+    ) {
+        SourceBadge(text = uiString(R.string.l10n_sleep_screen_low_confidence_99d4ceae), tint = Palette.statusWarning)
+        Text(
+            uiString(R.string.l10n_sleep_screen_this_night_scored_high_efficiency_but_a11d90eb),
+            style = NoopType.caption,
+            color = Palette.textTertiary,
+        )
+    }
+}
+
+/**
+ * The stored blocks the sleep caveats read: the bridged main-night GROUP, falling back to the single main
+ * block when the group is empty. Pure, so the CHOICE of blocks is testable rather than an inline
+ * expression buried in a Composable.
+ *
+ * Narrower than iOS, which reads `night.sourceBlocks`, every real block of the day. `Hero` is handed only
+ * `session` and `heroGroup`, so a block outside the group is not consulted here. Since `stagingSparse` is
+ * stamped on every block of the day, any block in the group carries it, which covers the reported shape;
+ * widening it would mean plumbing a new parameter.
+ */
+internal fun sleepDayBlocks(
+    session: SleepSession?,
+    heroGroup: List<SleepSession>,
+): List<SleepSession> = heroGroup.ifEmpty { listOfNotNull(session) }
+
+/**
+ * Whether ANY of the day's blocks carries the sparse-staging verdict.
+ *
+ * `stagingSparse` is a DAY-level flag stamped onto every block, which iOS states on its own gate ("each
+ * carries the day's value") and reads as `night.sourceBlocks.contains { $0.stagingSparse == true }`.
+ * Android asked the main block alone, so a night whose main block was imported (nil flag) while a computed
+ * fragment carried true warned on iPhone and Mac and stayed silent here, though both claimed to mirror
+ * each other. A nil flag is never itself a flag.
+ */
+internal fun anyBlockStagingSparse(blocks: List<SleepSession>): Boolean =
+    blocks.any { it.stagingSparse == true }
+
+/**
+ * Pure #345 gate (unit-testable without a Composable) — whether the "May be incomplete" caveat applies.
+ * Twin of Swift `SleepView.stageSparseNoteApplies`.
+ *
+ * [stagingSparse] alone is NOT the question the note asks. It is a STAGING-MECHANISM verdict:
+ * [SleepStager.isGravitySparse] returns true when the gravity span is short against the HR span OR when the
+ * LARGEST inter-sample gap exceeds `maxGapMin`, and its own doc calls that second branch "the typical WHOOP
+ * 4.0 backfill (#28)" whose only consequence is to ENABLE `buildRuns`' HR-vouched bridge. So a single long
+ * motion dropout sets it on a night of ANY length, including a complete twelve-hour one, and the flag is
+ * raised precisely where the engine has already applied its own mitigation.
+ *
+ * The note's copy, though, claims something narrower and checkable: that the night may be under-detected and
+ * the sleep total can read short. So require the total to actually read short. A night at or above the
+ * wearer's need cannot honestly be captioned as possibly reading short, whatever the motion trace looked
+ * like.
+ *
+ * A night that staged to NOTHING keeps the caveat: zero asleep is the strongest form of the collapse this
+ * note exists to explain, not an exemption from it.
+ *
+ * [needHours] is a parameter rather than a constant so a personalised need
+ * (`RestScorer.personalizedNeedHours`) can be threaded in later without moving the rule. It is
+ * computed per pass today and not persisted on a row a screen can reach, so the shared default stands in.
+ */
+internal fun stageSparseNoteApplies(
+    stagingSparse: Boolean,
+    asleepMin: Double,
+    needHours: Double = com.noop.analytics.RestScorer.defaultSleepNeedHours,
+): Boolean {
+    if (!stagingSparse) return false
+    return asleepMin < needHours * 60.0
+}
+
 /** The sparse-coverage caveat (#345): a night staged on thin motion data can under-detect and read short
  *  ("slept 8h, shows 1h"). Honest + actionable. Mirrors iOS SleepView.stageIncompleteNote. */
 @Composable
@@ -1450,6 +1749,37 @@ private fun SleepIncompleteNote() {
         SourceBadge(text = uiString(R.string.l10n_sleep_screen_may_be_incomplete_7230dc27), tint = Palette.statusWarning)
         Text(
             uiString(R.string.l10n_sleep_screen_little_motion_was_recorded_over_f061b7e4),
+            style = NoopType.caption,
+            color = Palette.textTertiary,
+        )
+    }
+}
+
+/**
+ * The PARTIAL-TIMELINE caveat (#1716): this night's stage segments account for less than
+ * [HypnogramCoverage.minCoverage] of the window the session claims, so the stage totals describe only the
+ * part of the night the timeline accounts for. Distinct from BOTH notes above — #H9 doubts the deep/REM SPLIT
+ * of a fully-described night, #345 doubts a night staged on thin motion, and this one says plainly that
+ * some of the night is MISSING rather than doubted.
+ *
+ * HONEST-DATA: reports only what was observed and changes no number. The percentage is FLOORED, never
+ * rounded — 94.8% must not print as "95%" beside a badge raised because coverage fell below 95% — which is
+ * why this takes the fraction and floors it here rather than accepting a pre-rounded Int from the caller.
+ * The copy names NO cause and offers NO remedy: the captures behind this note show the missing codes DID
+ * reach the phone (the ring reported them unwritten, 0xFF) and that re-persisting the night does not fill
+ * the hole. Mirrors iOS SleepView.stagePartialNote.
+ */
+@Composable
+private fun SleepPartialNote(coverage: Double) {
+    Row(
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalAlignment = Alignment.Top,
+        modifier = Modifier.padding(horizontal = 2.dp),
+    ) {
+        SourceBadge(text = uiString(R.string.l10n_sleep_screen_partly_recorded_f43509ab), tint = Palette.statusWarning)
+        Text(
+            uiString(R.string.l10n_sleep_screen_only_of_this_night_s_window_9660332a,
+                     floor(coverage * 100.0).toInt()),
             style = NoopType.caption,
             color = Palette.textTertiary,
         )
@@ -1564,7 +1894,8 @@ private fun NapRow(
     // with the Edit next-step. Inline disclosure (Compose has no anchored popover here); the COPY matches
     // iOS SleepView.whyPopover(napSuffix:) exactly. (spec 2026-06-20)
     var showWhy by remember(nap.startTs) { mutableStateOf(false) }
-    val window = "${clockTimeLabel(nap.effectiveStartTs)} - ${clockTimeLabel(nap.endTs)}"
+    val napIs24h = ClockPrefs.uses24Hour(LocalContext.current)   // #1821
+    val window = "${clockTimeLabel(nap.effectiveStartTs, napIs24h)} - ${clockTimeLabel(nap.endTs, napIs24h)}"
     val durMin = (nap.endTs - nap.effectiveStartTs) / 60.0
     Column(verticalArrangement = Arrangement.spacedBy(Metrics.space10)) {
         Row(
@@ -1957,5 +2288,3 @@ private fun MotionStrip(epochs: List<Double>) {
 // MARK: - Sleep window and night navigation UI lives in SleepNightNavUi.kt
 // MARK: - Sleep metric cards, debt ledger, stages, trends + chart helpers live in SleepMetricCardsUi.kt
 // MARK: - Sleep metric detail sheet UI lives in SleepMetricDetailSheet.kt
-
-

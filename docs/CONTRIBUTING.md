@@ -40,9 +40,16 @@ non-negotiable (especially on the Bluetooth path).
 
 A few principles run through the whole codebase. Internalize them before opening a PR.
 
-1. **Offline by design.** There is no server, no telemetry, no account, no network call. A change
-   that phones home — for any reason — does not belong here. Strap data, imports, and computed
-   metrics live in a local SQLite database and never leave the device.
+1. **Offline by design.** There is no NOOP server, telemetry, or account, and **nothing about you
+   leaves the device unless you explicitly switch on a feature that sends it.** Strap data, imports,
+   and computed metrics live in a local SQLite database.
+   The app makes exactly four network requests, all documented in
+   [docs/PRIVACY_SECURITY.md §1.1](PRIVACY_SECURITY.md): the opt-in AI Coach, the
+   compile-time-optional Oura history import, the update check (a read of a public version number,
+   on by default, switchable off), and Android's default-off Experimental one-way export to a
+   user-owned endpoint. Adding a fifth needs a very good reason and the same treatment: named in the
+   privacy doc, and switchable off. New hosted services or undisclosed network calls do not belong
+   here; see [Scope](SCOPE.md).
 2. **Interoperability, not impersonation.** NOOP talks to a strap the user already owns. It does not
    log into a WHOOP account, bypass a paywall, or ship WHOOP's proprietary code/firmware/assets/logos.
    Keep contributions on the right side of that line, and keep all WHOOP references *nominative*
@@ -247,14 +254,19 @@ NOOP runs a **deliberately lean CI**: fast, no-hardware checks guard the point o
 and hardware-dependent verification runs at release time or on demand. This is a choice for an
 anonymous, offline, sideloaded project — not a gap to fill with more gates.
 
-- **On every PR (required):** `swift-packages` runs `swift test` for `Packages/**`; `i18n-coverage`
-  runs the string audit. These catch the regressions that matter most (protocol/analytics math,
-  storage, i18n) without a device or an Xcode/Gradle app build.
+- **On every PR (required):** `source-hygiene`, `tools-python` and `i18n-coverage` have no path
+  filter, so all three run on everything. `swift-packages` (`swift test` for `Packages/**`) and
+  `android` (`assembleFullDebug` + `testFullDebugUnitTest`) are **path-filtered** — they run when you
+  touch what they cover, which is most substantive PRs. Between them these catch the regressions that
+  matter most (protocol/analytics math, storage, i18n) without a device or an app build. The check
+  names you see are JOB names and do not resemble the workflow names; the table in the root
+  [CONTRIBUTING.md](../CONTRIBUTING.md#what-ci-checks) maps them.
 - **Disabled by design — you build the app yourself:** `app-build.yml` (app-target compile, iOS needs
-  `macos-26`) and `android.yml` (Android app build) are **off**. So a compile error in **app-target**
-  code (SwiftUI Views, `BLEManager`, `Repository`, a Compose screen) passes every default check.
-  Before you push app-layer changes, compile locally — `xcodebuild … build` /
-  `./gradlew compileFullDebugKotlin` — or dispatch `app-build.yml` on demand.
+  `macos-26`) is **off**. So a compile error in **app-target** code (SwiftUI Views, `BLEManager`,
+  `Repository`, a Compose screen) passes every default check — `android.yml` builds and unit-tests the
+  Android app but nothing compiles the Apple app target. Before you push app-layer changes, compile
+  locally — `xcodebuild … build` / `./gradlew compileFullDebugKotlin` — or dispatch `app-build.yml`
+  on demand.
 - **Gated at release, not per PR:** Android release lint (`lintVitalFullRelease`) runs inside
   `assembleFullRelease` in the staging/release builds, so lint-fatal issues (e.g. an
   `ExtraTranslation` in a `values-<lang>` file) surface there. Run `./gradlew lintVitalFullRelease`
@@ -350,9 +362,10 @@ then used. Screens stay thin; the system stays canonical.
   CoreBluetooth work off-main without a very good reason.
 - **No anonymous magic.** Reach for an existing constant/enum (`NoopMetrics`, `StrandPalette`,
   `WhoopCommand`, `MetricCatalog`) before introducing a literal.
-- **Validate before you trust.** Any data coming off the wire is gated on its checksum *and*
-  range-checked before it can drive state (see `FrameRouter.handle` rejecting `crcOK == false` and
-  clamping HR to 30…220). New inbound paths follow the same pattern.
+- **Validate before you trust.** Any data coming off the wire is gated on the **full integrity
+  verdict** *and* range-checked before it can drive state (see `FrameRouter.handle` rejecting every
+  frame with `parsed.ok == false` and clamping HR to 30…220). New inbound paths follow the same
+  pattern.
 
 ---
 
@@ -385,21 +398,41 @@ sent automatically (#166). If you believe another non-trivial command is genuine
 issue first, justify why it's reversible, and document its payload and on-device verification before
 any code.
 
-### 2. CRC-gate everything
+### 2. Gate on the full integrity verdict
 
-Frames are only acted on after both CRCs pass. Outbound frames are built with the correct CRCs;
-inbound frames are rejected if their checksum fails.
+Frames are only acted on after the **whole** envelope checks out — header checksum, payload CRC32
+and the structural size rules ([frame integrity verdict](PROTOCOL_IMPLEMENTATION.md#frame-integrity-verdict))
+together. Outbound frames are
+built with the correct CRCs; inbound frames are rejected if any part of that verdict fails.
 
 - **Outbound:** `WhoopCommand.frame(seq:payload:)` builds
   `[0xAA][len u16 LE][crc8(len)][type=35][seq][cmd][payload…][crc32 LE]`, computing `crc8` over the
   length bytes and the zlib `crc32` over the inner bytes. The WHOOP 4.0 and 5.0 envelopes differ
   (WHOOP 4 uses a CRC8 header; WHOOP 5 / the "goose" path uses a CRC16-Modbus header) — see
   `Packages/WhoopProtocol/Sources/WhoopProtocol/Framing.swift` (`verifyFrame`, `verifyFrame(_:family:)`).
-- **Inbound:** `FrameRouter.handle(frame:)` decodes with `parseFrame` and **rejects any frame whose
-  `crcOK == false`** before it can touch `LiveState`. Bad bytes never drive state. New inbound paths
-  must do the same.
+- **Inbound:** `FrameRouter.handle(parsed:frame:)` decodes with `parseFrame` and **rejects any frame
+  whose `parsed.ok` is false** before it can touch `LiveState`. Bad bytes never drive state. New
+  inbound paths must do the same — one condition, the verdict:
 
-Never short-circuit a CRC check "to make a capture work". If a real frame fails CRC, the bug is in
+  ```swift
+  let parsed = parseFrame(frame, family: family)
+  guard parsed.ok else { return }
+  ```
+
+  One condition, and it is `ok`. Do **not** write a second, weaker step beside it that asks only
+  whether the payload CRC32 was *demonstrably* wrong — that two-step form is the specific mistake
+  this rule exists to stop, and `ok` already subsumes it. It lets through a frame whose header checksum or declared length
+  is broken while its payload CRC32 is fine, and a frame whose payload CRC32 could not be computed
+  at all. `parsed.rejectReason` carries the cause, so a rejection can be counted and reported
+  without verifying the frame a second time — do that instead of letting the path go quiet.
+
+**Evidence-preserving readers are the documented exception**, and there is a reason to be careful
+here rather than mechanical: the reader that decides whether a raw history frame must be archived
+before the trim ack is asked the *opposite* question, and a negative verdict there is a reason to
+keep the frame, not to drop it. Tightening it the wrong way would delete the only durable copy of
+exactly the frames the strap is about to release. Check the direction of a gate before you flip it.
+
+Never short-circuit a CRC check "to make a capture work". If a real frame fails, the bug is in
 the framing/decoding, not in the check.
 
 ### 3. Keep the BLE path stable
@@ -541,6 +574,14 @@ Schema lives in `Packages/WhoopStore/Sources/WhoopStore/Database.swift` as a **v
   a 32-vs-64-bit or signedness split is invisible to a per-platform fixture-hex test. **Extend the
   oracle rather than adding a parallel mechanism**; a `coverage` manifest in the file makes silently
   dropping an assertion a test failure, so adding one means listing it there too.
+- **Frame integrity is pinned by the same idiom.** Cross-platform agreement on *whether a frame is
+  intact* is not a matter of reading `Framing.swift` and `Framing.kt` side by side — it is pinned by
+  `frame_integrity_oracle.json`, which lives in the same two byte-identical copies and lists, per
+  frame, the verdict, the reject reason **and** the historical-metadata classification. No generator
+  is retained in this repository: update both copies together, then run
+  `FrameIntegrityOracleTests.swift` and `FrameIntegrityOracleTest.kt`, which each assert every row and
+  all three fields. Changing a bound, a reason or a classification on one platform then fails the
+  other suite. Extend that oracle rather than adding a per-platform test that can only drift.
 - **Prefer pure tests.** Because `WhoopProtocol`, `StrandAnalytics`, and `FrameRouter` are
   framework-free, you can (and should) cover new decode/routing/math with captured frames and
   fixtures rather than requiring a strap.
@@ -557,6 +598,11 @@ Schema lives in `Packages/WhoopStore/Sources/WhoopStore/Database.swift` as a **v
   commits/PRs where practical.
 - **Show your verification.** For anything on the BLE path, state what you tested on real hardware.
   For analytics, cite the method and add a test. For UI, confirm it uses only `StrandDesign` tokens.
+- **Scoring changes follow the validation protocol.** Any change to a scored output — sleep stages,
+  recovery, strain, HRV — is governed by [`VALIDATION_PROTOCOL.md`](VALIDATION_PROTOCOL.md): the
+  prediction is pre-registered before measuring, the self-comparison audit gates the reference set,
+  every number ships with the command that regenerates it, and the headline figure comes from a
+  temporal held-out window. Paste its checklist into the PR.
 - **Anonymous, project-voice.** Documentation and comments are written in a neutral, third-person
   project voice. Keep upstream credits (`my-whoop`, `goose`, `GRDB.swift`, `ZIPFoundation`) intact.
 - **No proprietary material.** Don't add WHOOP firmware, decompiled app code, logos, or assets, and

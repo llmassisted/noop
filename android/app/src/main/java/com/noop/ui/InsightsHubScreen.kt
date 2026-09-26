@@ -126,7 +126,7 @@ fun InsightsHubScreen(vm: AppViewModel) {
                 Overline("How to read this", color = Palette.textTertiary)
                 Text(
                     uiString(R.string.l10n_insights_hub_screen_everything_here_is_a_pattern_in_ed2162a6) +
-                        "effect size and confidence, never a cause or a diagnosis. Population patterns " +
+                        " effect size and confidence, never a cause or a diagnosis. Population patterns " +
                         "are shown as “typical” and are always overridden by your own data once " +
                         "you have enough of it. Approximations, not WHOOP’s scores; not a medical device.",
                     style = NoopType.footnote,
@@ -164,7 +164,7 @@ private fun MoversSection(
             NoopCard {
                 Text(
                     uiString(R.string.l10n_insights_hub_screen_not_enough_overlap_between_your_journal_0ebdd7a2) +
-                        "${outcome.outcomeName.lowercase(Locale.US)} yet. Keep logging. Each behaviour " +
+                        " ${outcome.outcomeName.lowercase(Locale.US)} yet. Keep logging. Each behaviour " +
                         "needs days both with and without it before NOOP can read its effect.",
                     style = NoopType.subhead,
                     color = Palette.textTertiary,
@@ -272,7 +272,7 @@ private fun DoseSection(cards: List<DoseCardData>) {
             NoopCard {
                 Text(
                     uiString(R.string.l10n_insights_hub_screen_log_alcohol_or_late_caffeine_with_dec9dadf) +
-                        "how much each extra unit tends to move your numbers. Until then it shows " +
+                        " how much each extra unit tends to move your numbers. Until then it shows " +
                         "typical patterns, clearly labelled as not yet yours.",
                     style = NoopType.subhead,
                     color = Palette.textSecondary,
@@ -546,6 +546,8 @@ internal class InsightsHubViewModel {
     data class Snapshot(
         val loaded: Boolean = false,
         val behaviours: Map<String, Set<String>> = emptyMap(),
+        /** Per behaviour, the days it was logged NO — the only legitimate control group. */
+        val controls: Map<String, Set<String>> = emptyMap(),
         val outcomeByKey: Map<String, Map<String, Double>> = emptyMap(),
         val doseCards: List<DoseCardData> = emptyList(),
     )
@@ -577,13 +579,21 @@ internal class InsightsHubViewModel {
     }
 
     suspend fun load(vm: AppViewModel, days: List<DailyMetric>) {
-        // Journal → behaviour → days (imported ∪ native, native wins; only "yes" counts).
+        // Journal → behaviour → days (imported ∪ native, native wins). BOTH answers count now, kept in
+        // separate maps; the merge is what guarantees a day cannot be Yes and No for one question.
         val imported = vm.repo.journal("my-whoop", "0000-01-01", "9999-12-31")
         val native = vm.repo.journal(JOURNAL_DEVICE_ID, "0000-01-01", "9999-12-31")
         val entries = mergeJournalEntries(imported, native)
         val byBehaviour = HashMap<String, MutableSet<String>>()
-        for (e in entries) if (e.answeredYes) byBehaviour.getOrPut(e.question) { mutableSetOf() }.add(e.day)
+        val controlsByBehaviour = HashMap<String, MutableSet<String>>()
+        // Yes days and NO days, kept apart. A day with no journal row for the question appears in
+        // neither, so the ranker cannot mistake "never logged" for "logged No" (#EffectRanker.effect).
+        for (e in entries) {
+            val bucket = if (e.answeredYes) byBehaviour else controlsByBehaviour
+            bucket.getOrPut(e.question) { mutableSetOf() }.add(e.day)
+        }
         val behaviours = byBehaviour.mapValues { it.value.toSet() }
+        val controls = controlsByBehaviour.mapValues { it.value.toSet() }
 
         // Outcome series straight off the cached DailyMetric rows (the guaranteed Android source).
         val outcomeByKey = HashMap<String, Map<String, Double>>()
@@ -615,6 +625,7 @@ internal class InsightsHubViewModel {
         _state.value = Snapshot(
             loaded = true,
             behaviours = behaviours,
+            controls = controls,
             outcomeByKey = outcomeByKey,
             doseCards = doseCards,
         )
@@ -624,7 +635,7 @@ internal class InsightsHubViewModel {
     fun rankFor(snapshot: Snapshot, outcome: InsightsOutcome): List<RankedEffect> {
         if (!snapshot.loaded) return emptyList()
         val outcomeDays = snapshot.outcomeByKey[outcome.key] ?: emptyMap()
-        return EffectRanker.rank(snapshot.behaviours, outcomeDays, outcome.outcomeName)
+        return EffectRanker.rank(snapshot.behaviours, snapshot.controls, outcomeDays, outcome.outcomeName)
     }
 }
 

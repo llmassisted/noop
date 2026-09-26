@@ -60,13 +60,32 @@ cd android
 
 ## What CI checks
 
-Two GitHub Actions workflows run on every PR and push to `main`. They compile and
-run unit tests only — no code signing, no secrets, no release.
+Some GitHub Actions workflows run on *every* PR; others are path-filtered and only run when
+you touch what they cover. All of them compile and run unit tests only — no code signing, no
+secrets, no release. The table is the source of truth, deliberately — the section this
+replaced led with a count, and a count in prose is what goes stale while the list below it
+looks fine.
 
-| Workflow | Trigger | What it does |
+The check names GitHub shows you are **job** names, which do not resemble the workflow
+names. That column is why this table exists:
+
+| Check you see | Workflow | Runs when |
 |---|---|---|
-| **Swift Packages CI** (`.github/workflows/swift-packages.yml`) | changes under `Packages/**` | `swift build` + `swift test` for each package |
-| **Android CI** (`.github/workflows/android.yml`) | changes under `android/**` | `assembleFullDebug` + `testFullDebugUnitTest` (JDK 17) |
+| `check` | **i18n Coverage** (`i18n-coverage.yml`) | every PR |
+| `doc-comments` | **Source Hygiene** (`source-hygiene.yml`) | every PR |
+| `linux-capture` | **Tools Python CI** (`tools-python.yml`) | every PR |
+| `build-and-test` | **Android CI** (`android.yml`) | `android/**`, the protocol/store test resources, `Strand/Resources/Localizable.xcstrings` |
+| `test (…)`, `tools (…)` | **Swift Packages CI** (`swift-packages.yml`) | `Packages/**`, the `Tools/SleepBench`, `Tools/SleepPSG` and `Tools/Backfill` packages, `android/app/src/test/resources/**`, `Strand/Liquid/LiquidCore.swift` |
+
+Read that as a worked example: an Android-only PR runs Android CI plus the three that always
+run, so a short list of checks does not mean little was checked.
+
+**App build** (`app-build.yml`, app-target compile + the `StrandTests` macOS suite) is
+`disabled_manually` and is **not** in that list. App-target code — SwiftUI views,
+`BLEManager`, `Repository`, Compose screens — is compiled by **nothing** on a normal PR, so
+build it locally before you push, or ask a maintainer to dispatch `app-build.yml`. See
+[docs/CONTRIBUTING.md](docs/CONTRIBUTING.md#what-ci-gates--and-what-it-deliberately-doesnt)
+for why the lean setup is deliberate and what else is gated at release time instead.
 
 If CI fails on your PR, fix the cause rather than working around it. Never commit
 generated output (`Strand.xcodeproj/`) or any secrets, keystores, or `local.properties`.
@@ -80,7 +99,10 @@ generated output (`Strand.xcodeproj/`) or any secrets, keystores, or `local.prop
 2. Fill in the [PR template](.github/PULL_REQUEST_TEMPLATE.md).
 3. For anything on the BLE path, state what you tested **on real hardware** and on
    which strap. A green build is not proof a command behaves correctly.
-4. For analytics changes, add a test and cite the method.
+4. For analytics changes, add a test and cite the method. If the change alters a
+   scoring output, follow [`docs/VALIDATION_PROTOCOL.md`](docs/VALIDATION_PROTOCOL.md)
+   and paste its checklist into the PR — a scoring change with no held-out number
+   may ship behind a flag, but may not be described as an improvement.
 5. For UI changes, use `StrandDesign` tokens only — no hardcoded colors, fonts,
    or spacing.
 

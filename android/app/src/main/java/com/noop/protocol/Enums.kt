@@ -154,6 +154,11 @@ enum class CommandNumber(val rawValue: Int) {
     REPORT_VERSION_INFO(7),
     SET_CLOCK(10),
     GET_CLOCK(11),
+    // Opcode/name come from the canonical CommandNumber schema in
+    // Packages/WhoopProtocol/Sources/WhoopProtocol/Resources/whoop_protocol.json and its WHOOP 4
+    // matrix in docs/PROTOCOL_COMMANDS.md. Payload 1 enabled standard BLE HR advertising and payload 0
+    // disabled it on the WHOOP 4.0 tested for #2400. Reversible, explicit opt-in; no readable confirmation.
+    TOGGLE_GENERIC_HR_PROFILE(14),
     // ABORT_HISTORICAL_TRANSMITS (20) — stop an offload part-way through. NON-DESTRUCTIVE and NOT a
     // trim: the strap frees banked records when we ack a HISTORY_END, so anything unacked when the
     // abort lands stays in flash and re-offloads next sync. Body [0x00], matching the only hands-on
@@ -202,6 +207,31 @@ enum class CommandNumber(val rawValue: Int) {
     // strap reboots to apply. WHOOP 4.0 only (a 5/MG uses puffin framing + a different config path).
     // Port of Swift WhoopCommand.setAdvertisingNameHarvard.
     SET_ADVERTISING_NAME(77),
+    // #2338 READ-ONLY. GET_ADVERTISING_NAME (141) — the schema's non-Harvard advertising-name pair is
+    // 140 (set) / 141 (get), which is where a 5/MG's name would live if it lives anywhere reachable.
+    // NOTHING in this repo has ever sent either, so the numbers rest on the schema alone, exactly like
+    // the unconfirmed 96 two entries down. Read 141 first: [probeAdvertisingName] is what tells you
+    // whether this opcode family is even the right one before the write below goes near a strap.
+    //
+    // Note [SET_ADVERTISING_NAME] above is 77, the HARVARD set, despite the bare name. That misnomer
+    // predates this and `CommandNames.label(77)` already prints the schema's own
+    // SET_ADVERTISING_NAME_HARVARD, which is what a strap log shows.
+    GET_ADVERTISING_NAME(141),
+    // #2338 WRITE, NOT hardware-confirmed. SET_ADVERTISING_NAME (140) — the schema's non-Harvard set.
+    //
+    // Reversible: renaming again replaces it, and the 4.0 path has behaved that way since #428. That is
+    // the test the BLE contract actually applies, and it is why this is admissible at all.
+    //
+    // What is NOT established: no strap has been sent this opcode, and the payload below mirrors the 4.0
+    // Harvard shape rather than anything observed on a 5/MG. A wrong shape should be refused by the
+    // strap's own CRC and opcode validation, which is the bet being made. Same standing as
+    // REBOOT_STRAP(29) over puffin, which is also unconfirmed on this family, with one difference worth
+    // naming: reboot carries no body, this carries a guessed one.
+    //
+    // Gated accordingly: Test Centre Connection, user-initiated, never automatic, and the allow-list
+    // admits it only while a confirmed write is in flight. The COMMAND_RESPONSE is logged so a strap log
+    // says whether the frame was accepted.
+    SET_ADVERTISING_NAME_5MG(140),
     RUN_HAPTICS_PATTERN(79),
     GET_ALL_HAPTICS_PATTERN(80),
     // SET_CONFIG / SET_FF_VALUE (0x78) — write one persistent feature flag. The 5/MG "enable R22
@@ -215,6 +245,10 @@ enum class CommandNumber(val rawValue: Int) {
     SET_DEVICE_CONFIG(119),
     START_RAW_DATA(81),
     STOP_RAW_DATA(82),
+    // WHOOP 5/MG realtime 6-axis IMU. The production WHOOP app sends revision 1 plus an enabled
+    // byte while a Strength Builder workout is active (hardware-captured on a normal WHOOP 5).
+    // NOOP exposes this only through the explicitly user-started Ground Truth collector.
+    TOGGLE_IMU_MODE(106),
     // GET_EXTENDED_BATTERY_INFO (98) — read-only extended battery read (mV etc.). The NUMBER is disputed
     // (#592): an independent APK decompile reads this family 11 lower (87), while whoomp's table says 98 —
     // partially supported by a real WHOOP 5 (fw 50.38.1.0) ANSWERING 98, though with a short stub that
@@ -223,6 +257,8 @@ enum class CommandNumber(val rawValue: Int) {
     // dumped in full to the strap log so a normal export settles which number this firmware serves.
     // Mirrors Swift WhoopCommand.getExtendedBatteryInfo.
     GET_EXTENDED_BATTERY_INFO(98),
+    /** The 5/MG battery pack's fuel gauge, read THROUGH the strap. A 4.0 never answers it. */
+    GET_BATTERY_PACK_INFO(151),
     // #690: read-only body-location/status probe. Documented in the WHOOP protocol; driven only by the
     // user-triggered, Test-Centre-gated probeBodyLocationAndStatus(). Decoded to a diagnostic report only.
     GET_BODY_LOCATION_AND_STATUS(84),
