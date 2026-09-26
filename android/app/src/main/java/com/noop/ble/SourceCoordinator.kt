@@ -110,10 +110,12 @@ class SourceCoordinator(
      * production retains the encrypted-store behavior through this default. */
     private val migrateOuraInstallKey: (fromId: String, toId: String) -> Unit = { fromId, toId ->
         context?.let { ctx ->
-            OuraInstallKeyStore.load(ctx, fromId)?.let { key ->
-                OuraInstallKeyStore.save(ctx, toId, key)
-                OuraInstallKeyStore.clear(ctx, fromId)
+            // A candidate-key handshake may already have recovered a newer address-keyed credential under
+            // the stable serial. Never replace that authenticated winner with a stale registry-id key.
+            if (!OuraInstallKeyStore.hasKey(ctx, toId)) {
+                OuraInstallKeyStore.copy(ctx, fromId, toId, overwrite = false)
             }
+            OuraInstallKeyStore.clear(ctx, fromId)
         }
     },
 ) {
@@ -158,6 +160,15 @@ class SourceCoordinator(
     private val _ouraLinkPhase = MutableStateFlow(OuraLiveSource.LinkPhase.DISCONNECTED)
     val ouraLinkPhase: StateFlow<OuraLiveSource.LinkPhase> = _ouraLinkPhase.asStateFlow()
 
+    /** Actual active-source identity, independent of the application startup's cached device id. This is
+     *  especially important after Oura adopts its stable serial id during the running process. */
+    private val _ouraActive = MutableStateFlow(false)
+    val ouraActive: StateFlow<Boolean> = _ouraActive.asStateFlow()
+
+    /** The Oura source's own GetEvents state. WHOOP's LiveState.backfilling never represents this drain. */
+    private val _ouraHistorySyncing = MutableStateFlow(false)
+    val ouraHistorySyncing: StateFlow<Boolean> = _ouraHistorySyncing.asStateFlow()
+
     /** Collects the active Oura source's adoptPhase / needsPairing into the mirrors above; cancelled and
      *  nulled on teardown so a forgotten ring never leaks a stale outcome. */
     private var ouraStateJob: kotlinx.coroutines.Job? = null
@@ -168,9 +179,13 @@ class SourceCoordinator(
      *  scans / stops it. Built by [makeSource]; each source owns its OWN scanner/GATT and never touches the
      *  WHOOP BLE client, so the WHOOP path cannot regress. (An Oura ring additionally surfaces only its OWN
      *  raw signals + open event tags — NOOP computes its own Charge/Rest — never Oura's encrypted scores.) */
+    @Volatile
     private var activeSource: LiveHrSource? = null
     /** The deviceId the active non-WHOOP source ([activeSource]) runs for. */
     private var activeStrapId: String? = null
+    /** UI demand for instantaneous Oura HR. Retained across reconnect/serial adoption so a visible Live
+     *  screen resumes automatically, while the normal background default remains false. */
+    @Volatile private var ouraLiveHrRequested = false
     /** The WHOOP registry id we last pointed the connection at, so a WHOOP→WHOOP switch is detected and a
      *  repeat activation of the SAME WHOOP is a no-op. null until the first WHOOP activation. (MW-3) */
     private var activeWhoopId: String? = null
@@ -239,6 +254,21 @@ class SourceCoordinator(
     private suspend fun touchLastSeenForStrap(address: String) {
         val row = registry.all().firstOrNull { it.peripheralId.equals(address, ignoreCase = true) } ?: return
         registry.touchLastSeen(row.id)
+    }
+
+    /** Ask the active Oura source to pull banked history immediately. Oura owns its own cursor/phase guard,
+     *  so a tap during an existing drain is harmless. Other source families keep their existing sync path. */
+    fun syncOuraNow(): Boolean {
+        val source = activeSource as? OuraLiveSource ?: return false
+        source.syncNow()
+        return true
+    }
+
+    /** Keep Oura's daytime live measurement scoped to screens that actually display it. History sync and
+     *  automatic overnight recording remain connected independently. */
+    fun setOuraLiveHrRequested(requested: Boolean) {
+        ouraLiveHrRequested = requested
+        (activeSource as? OuraLiveSource)?.setLiveHRRequested(requested)
     }
 
     /**
@@ -399,14 +429,24 @@ class SourceCoordinator(
         // Build the isolated source for this device's registered kind (the ONE place that maps a kind to a
         // concrete driver), then bring it up. Adding a brand adds ONE arm in [makeSource] plus a conforming
         // source; nothing else in the coordinator changes.
-        val source = makeSource(id, row)
+        val source = makeSource(id, row, devices)
         // CONNECT to the active strap's known BLE address, don't just scan. A bare scan discovers + lists
         // the strap but never connects — so a Polar H10 etc. showed up as "found" yet never streamed
         // (#421). connect(address) connects directly via getRemoteDevice; a bare scan is the fallback only
         // when the registry row has no address.
-        if (!address.isNullOrEmpty()) source.connect(address) else source.scan()
+        if (source is OuraLiveSource) {
+            source.setLiveHRRequested(ouraLiveHrRequested)
+            // Oura uses a rotating BLE privacy address. Resolve the current advertisement (and its stable
+            // serial) on every session instead of treating the last MAC as the ring's identity.
+            source.scanForPairedRing()
+        } else if (!address.isNullOrEmpty()) {
+            source.connect(address)
+        } else {
+            source.scan()
+        }
         activeSource = source
         activeStrapId = id
+        _ouraActive.value = source is OuraLiveSource
         onStrap = true
     }
 
@@ -419,7 +459,7 @@ class SourceCoordinator(
      * connecting — the caller ([switchToStrap]) does the connect-by-address-else-scan bring-up. Mirrors
      * macOS `SourceCoordinator.makeSource(for:)`.
      */
-    private fun makeSource(id: String, row: PairedDeviceRow?): LiveHrSource {
+    private fun makeSource(id: String, row: PairedDeviceRow?, devices: List<PairedDeviceRow>): LiveHrSource {
         // Non-null in production (set at the composition root); only the JVM-test paths that never reach a
         // strap switch leave it null. Fail loudly rather than silently no-op if that invariant breaks.
         val ctx = requireNotNull(context) { "SourceCoordinator.context is required to run a strap source" }
@@ -443,7 +483,7 @@ class SourceCoordinator(
                     onBattery = batterySink,
                 )
             }
-            SourceKind.oura.name -> makeOuraSource(id, ctx, row)
+            SourceKind.oura.name -> makeOuraSource(id, ctx, row, devices)
             else -> {
                 val repo = requireNotNull(repository) { "SourceCoordinator.repository is required to persist strap samples" }
                 StandardHrSource(
@@ -504,12 +544,25 @@ class SourceCoordinator(
      * so they live here rather than in the plain FTMS / Huami / Standard arms of [makeSource]. Mirrors the
      * Oura branch of macOS `makeOuraSource`.
      */
-    private fun makeOuraSource(id: String, ctx: Context, row: PairedDeviceRow?): OuraLiveSource {
+    private fun makeOuraSource(
+        id: String,
+        ctx: Context,
+        row: PairedDeviceRow?,
+        devices: List<PairedDeviceRow>,
+    ): OuraLiveSource {
         val repo = requireNotNull(repository) { "SourceCoordinator.repository is required to persist Oura samples" }
         // The ring generation is carried on the row's model ("Oura Ring 3/4/5"); recover it so the transport
         // clamps the MTU + picks the gen-appropriate live-HR enable command set. Defaults to gen3 if the
         // model is missing/unrecognised (OuraRingGen.from).
         val ringGen = OuraRingGen.from(row?.model ?: "")
+        // Pre-fix takeover attempts stored one key per rotating address. Registry timestamps preserve the
+        // actual attempt order, unlike SharedPreferences.getAll(), so try the newest Oura rows first.
+        val legacyIdsNewestFirst = devices
+            .asSequence()
+            .filter { it.sourceKind == SourceKind.oura.name }
+            .sortedWith(compareByDescending<PairedDeviceRow> { it.lastSeenAt }.thenByDescending { it.addedAt })
+            .map { it.id }
+            .toList()
         val source = OuraLiveSource(
             context = ctx,
             deviceId = id,
@@ -520,6 +573,17 @@ class SourceCoordinator(
             // path (no faked data). Read fresh on each connect so a key provisioned mid-session (the adopt
             // install) is picked up on the post-install re-auth.
             authKey = { OuraInstallKeyStore.load(ctx, id) },
+            authKeyCandidates = { address, advertisedSerial ->
+                val addressId = "${ExperimentalBrand.OURA.idPrefix}-$address"
+                val serialId = advertisedSerial?.let { "${ExperimentalBrand.OURA.idPrefix}-$it" }
+                val preferredIds = OuraKeyCandidates.preferredDeviceIds(
+                    addressDeviceId = addressId,
+                    serialDeviceId = serialId,
+                    currentDeviceId = id,
+                    legacyIdsNewestFirst = legacyIdsNewestFirst,
+                )
+                OuraInstallKeyStore.loadCandidates(ctx, preferredIds)
+            },
             persist = { batch: StreamBatch, deviceId: String ->
                 scope.launch { runCatching { repo.insert(batch, deviceId) } }
             },
@@ -612,6 +676,8 @@ class SourceCoordinator(
             launch { source.ouraWearState.collect { _ouraWearState.value = it } }
             launch { source.batteryPct.collect { _ouraBatteryPct.value = it } }   // #2075
             launch { source.linkPhase.collect { _ouraLinkPhase.value = it } }     // #2305
+
+            launch { source.historySyncing.collect { _ouraHistorySyncing.value = it } }
         }
         return source
     }
@@ -662,6 +728,9 @@ class SourceCoordinator(
         _ouraWearState.value = null   // #628: no live Oura source -> no wear badge
         _ouraBatteryPct.value = null  // #2075: nor a stale ring charge
         _ouraLinkPhase.value = OuraLiveSource.LinkPhase.DISCONNECTED   // #2305
+
+        _ouraActive.value = false
+        _ouraHistorySyncing.value = false
         // A stale speed/cadence/power readout must not outlive the strap session (the source's own stop()
         // already pushes an empty SensorMetrics, but reset here too so leaving for WHOOP / FTMS / Huami —
         // none of which feed this flow — is clean and immediate).

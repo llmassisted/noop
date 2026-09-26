@@ -10,6 +10,22 @@ import org.junit.Test
  * generation comes from the GetProductInfo hardware id.
  */
 class RingGenProductInfoTest {
+    @Test
+    fun `reset advertisement exposes stable serial without guessing generation`() {
+        assertEquals("4016082535033542", OuraIdentity.advertisedSerial("Oura 4016082535033542"))
+        assertEquals("2H3B2405003655", OuraIdentity.advertisedSerial("oura 2H3B2405003655"))
+        assertNull(OuraIdentity.advertisedSerial("Oura Ring 4"))
+        assertNull(OuraIdentity.advertisedSerial("Oura Horizon"))
+        assertNull(OuraIdentity.advertisedSerial("Oura Heritage"))
+        assertNull(OuraIdentity.advertisedSerial("WHOOP 5.0"))
+    }
+
+    @Test
+    fun `serial-less post-setup advertisement is authenticated rather than rejected`() {
+        assertEquals(true, OuraIdentity.mayMatchExpectedSerial("4016082535033542", null))
+        assertEquals(true, OuraIdentity.mayMatchExpectedSerial("4016082535033542", "4016082535033542"))
+        assertEquals(false, OuraIdentity.mayMatchExpectedSerial("4016082535033542", "2H3B2405003655"))
+    }
 
     @Test fun recogniseExplicitGenToken() {
         assertEquals(OuraRingGen.GEN3, OuraRingGen.recognise("Oura Ring Gen3"))
@@ -32,6 +48,8 @@ class RingGenProductInfoTest {
         assertEquals(OuraRingGen.GEN3, OuraRingGen.fromHardwareId("BLB_03"))  // validated on-device
         assertEquals(OuraRingGen.GEN4, OuraRingGen.fromHardwareId("BLB_04"))
         assertEquals(OuraRingGen.GEN5, OuraRingGen.fromHardwareId("BLB_05"))
+        assertEquals(OuraRingGen.GEN4, OuraRingGen.fromHardwareId("ORE_06"))  // observed Ring 4 hardware id
+        assertEquals(OuraRingGen.GEN4, OuraRingGen.fromHardwareId("XXXXORE_06"))
     }
 
     @Test fun fromHardwareIdUnrecognisedYieldsNull() {

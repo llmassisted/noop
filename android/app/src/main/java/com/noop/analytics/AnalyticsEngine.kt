@@ -411,6 +411,11 @@ object AnalyticsEngine {
         // Threaded rather than read from a global so this stays a pure function, and defaulted so every
         // existing caller and test is byte-identical.
         effortMethod: StrainScorer.Method = StrainScorer.Method.EDWARDS,
+        // Trusted in-bed bounds from a source that cannot feed the motion detector (notably Oura Ring 4),
+        // or from an explicit user bedtime/wake pair. A source-provided hypnogram is used verbatim;
+        // otherwise the selected V1/V2 recipe stages the bounded cardio streams. Default empty keeps every
+        // existing caller and motion-capable device byte-identical.
+        sleepWindowHints: List<SleepWindowHint> = emptyList(),
     ): DayResult {
 
         // Precompute the day's UTC bounds ONCE (#996). isoDay is a FIXED-UTC formatter, so
@@ -443,29 +448,58 @@ object AnalyticsEngine {
         // #804 Fix A: fold in the caller's device-provided hypnogram (see [providedSleep]). Empty = the
         // byte-identical motion-only path. Otherwise enrich each provided session's nightly restingHR/avgHRV
         // from THIS day's hr/rr over its window (the stored ring row carries neither), using the SAME helpers
-        // detectSleep populates a session with, then keep only the detected sessions that DON'T overlap a
-        // provided one (provided is authoritative where they collide; a separate nap survives).
-        val allSessions: List<DetectedSleep> = if (providedSleep.isEmpty()) {
-            refinedSessions
-        } else {
-            val rrSorted = rr.sortedBy { it.ts }
-            val enrichedProvided = providedSleep.map { s ->
-                // #1884: no HR-only special case any more. This used to short-circuit on `s.hrOnly` to
-                // preserve #1801's display-only guarantee, which withheld both values. Now that an HR-only
-                // session reports what it measured, that clause is not merely redundant — an HR-only night
-                // that measured a resting HR but no HRV (no R-R banked) would take the short-circuit and
-                // skip the fill every other session gets. The rule is uniform: fill what is missing.
-                if (s.restingHR != null && s.avgHRV != null) s
-                else s.copy(
-                    restingHR = s.restingHR ?: SleepStager.sessionRestingHR(s.start, s.end, hr),
-                    avgHRV = s.avgHRV ?: SleepStager.sessionAvgHRV(s.start, s.end, rrSorted),
-                )
-            }
-            val keptDetected = refinedSessions.filter { d ->
-                enrichedProvided.none { it.start < d.end && d.start < it.end }
-            }
-            keptDetected + enrichedProvided
+        // detectSleep populates a session with. Explicit/user hints win over a provided session; otherwise a
+        // provided hypnogram is authoritative over motion detection. Disjoint detected naps survive.
+        val rrSorted = rr.sortedBy { it.ts }
+        val enrichedProvided = providedSleep.map { s ->
+            if (s.restingHR != null && s.avgHRV != null) s
+            else s.copy(
+                restingHR = s.restingHR ?: SleepStager.sessionRestingHR(s.start, s.end, hr),
+                avgHRV = s.avgHRV ?: SleepStager.sessionAvgHRV(s.start, s.end, rrSorted),
+            )
         }
+
+        // A hint supplies only the missing DETECTION boundary; the normal stager and physiology functions
+        // still compute NOOP's stages/RHR/HRV from the raw streams. This is what lets an Oura 4 night flow
+        // into Sleep, Rest, vitals and Charge without pretending its movement-gated 0x47 events are a
+        // continuous accelerometer. When Oura did expose SleepNet stages, preserve those ring-provided
+        // stages and only derive the physiology around them.
+        val hintedSessions = sleepWindowHints.mapNotNull { hint ->
+            if (hint.start < 0L || hint.end <= hint.start || hint.end - hint.start > 16L * 3_600L) {
+                return@mapNotNull null
+            }
+            val supplied = hint.stages
+                ?.mapNotNull { s ->
+                    val start = maxOf(hint.start, s.start)
+                    val end = minOf(hint.end, s.end)
+                    if (end <= start) null else StageSegment(start, end, s.stage)
+                }
+                ?.takeIf { it.isNotEmpty() }
+            val stages = supplied ?: if (useSleepStagerV2) {
+                SleepStagerV2.stageSession(hint.start, hint.end, gravity, hr, rrSorted, resp)
+            } else {
+                SleepStager.stageSession(hint.start, hint.end, gravity, hr, rrSorted, resp)
+            }
+            DetectedSleep(
+                start = hint.start,
+                end = hint.end,
+                efficiency = SleepStager.efficiency(hint.start, hint.end, stages),
+                stages = stages,
+                restingHR = SleepStager.sessionRestingHR(hint.start, hint.end, hr),
+                avgHRV = SleepStager.sessionAvgHRV(hint.start, hint.end, rrSorted),
+                hrOnly = supplied == null && gravity.size < 2,
+            )
+        }
+        // Trusted hints win over every overlapping source. A provided hypnogram then wins over motion
+        // detection, and disjoint detector sessions (for example, a separate nap) remain visible.
+        val keptProvided = enrichedProvided.filter { provided ->
+            hintedSessions.none { hinted -> provided.start < hinted.end && hinted.start < provided.end }
+        }
+        val keptDetected = refinedSessions.filter { detected ->
+            hintedSessions.none { hinted -> detected.start < hinted.end && hinted.start < detected.end } &&
+                keptProvided.none { provided -> detected.start < provided.end && provided.start < detected.end }
+        }
+        val allSessions = (keptDetected + keptProvided + hintedSessions).sortedBy { it.start }
         // Sessions attributed to `day` = those whose end falls on `day` (LOCAL day, #277). `day` is
         // the caller's local-day key; attribute by the same offset so the bucket and the key agree.
         val matched = allSessions.filter { tsInDay(it.end) }

@@ -25,6 +25,7 @@ object OuraInstallKeyStore {
 
     private const val FILE_NAME = "noop_oura_secure_prefs"
     private const val KEY_PREFIX = "install_key_"
+    private const val SAVED_AT_PREFIX = "install_key_saved_at_"
 
     /** Prefix for the one-shot adopt-intent marker (see [setPendingAdopt]). Kept in the SAME encrypted
      *  file as the key so the two move together when a ring is forgotten. */
@@ -36,6 +37,8 @@ object OuraInstallKeyStore {
 
     /** Per-ring preference key. */
     private fun prefKey(deviceId: String) = "$KEY_PREFIX$deviceId"
+
+    private fun savedAtKey(deviceId: String) = "$SAVED_AT_PREFIX$deviceId"
 
     /** Per-ring adopt-intent marker key. */
     private fun adoptKey(deviceId: String) = "$ADOPT_PREFIX$deviceId"
@@ -60,7 +63,10 @@ object OuraInstallKeyStore {
         if (key.any { it !in 0..255 }) return false
         val bytes = ByteArray(KEY_LENGTH) { key[it].toByte() }
         val encoded = Base64.encodeToString(bytes, Base64.NO_WRAP)
-        prefs(ctx).edit().putString(prefKey(deviceId), encoded).apply()
+        prefs(ctx).edit()
+            .putString(prefKey(deviceId), encoded)
+            .putLong(savedAtKey(deviceId), System.currentTimeMillis())
+            .apply()
         return true
     }
 
@@ -71,10 +77,52 @@ object OuraInstallKeyStore {
      * `OuraLiveSource.authKey` and `OuraDriver`'s key parameter exactly.
      */
     fun load(ctx: Context, deviceId: String): IntArray? {
-        val encoded = prefs(ctx).getString(prefKey(deviceId), null) ?: return null
+        val encoded = runCatching { prefs(ctx).getString(prefKey(deviceId), null) }.getOrNull() ?: return null
+        return decode(encoded)
+    }
+
+    private fun decode(encoded: String): IntArray? {
         val bytes = runCatching { Base64.decode(encoded, Base64.NO_WRAP) }.getOrNull() ?: return null
         if (bytes.size != KEY_LENGTH) return null
         return IntArray(KEY_LENGTH) { bytes[it].toInt() and 0xFF }
+    }
+
+    /**
+     * Return distinct stored keys, trying [preferredDeviceIds] first. The remaining entries are recovery
+     * candidates from older address-keyed rows: Android rotates an Oura ring's BLE address, while releases
+     * before the stable-serial migration stored the credential under `oura-<MAC>`.
+     *
+     * This never exposes key bytes to logs and never installs anything on the ring. It only lets the normal
+     * challenge handshake test locally-stored candidates until one authenticates.
+     */
+    fun loadCandidates(ctx: Context, preferredDeviceIds: List<String>): List<IntArray> {
+        val p = runCatching { prefs(ctx) }.getOrNull() ?: return emptyList()
+        val ids = LinkedHashSet<String>()
+        ids.addAll(preferredDeviceIds.filter { it.isNotBlank() })
+        val remaining = runCatching { p.all.keys }
+            .getOrDefault(emptySet())
+            .filter { it.startsWith(KEY_PREFIX) && !it.startsWith(SAVED_AT_PREFIX) }
+            .sortedByDescending { storedKey ->
+                val storedDeviceId = storedKey.removePrefix(KEY_PREFIX)
+                runCatching { p.getLong(savedAtKey(storedDeviceId), 0L) }.getOrDefault(0L)
+            }
+        ids.addAll(remaining)
+
+        val out = ArrayList<IntArray>()
+        for (idOrKey in ids) {
+            val keyName = if (idOrKey.startsWith(KEY_PREFIX)) idOrKey else prefKey(idOrKey)
+            val encoded = runCatching { p.getString(keyName, null) }.getOrNull() ?: continue
+            val candidate = decode(encoded) ?: continue
+            if (out.none { it.contentEquals(candidate) }) out.add(candidate)
+        }
+        return out
+    }
+
+    /** Copy a valid key to a stable id. Used when a reset-mode advertisement reveals the serial. */
+    fun copy(ctx: Context, fromDeviceId: String, toDeviceId: String, overwrite: Boolean = true): Boolean {
+        val key = load(ctx, fromDeviceId) ?: return false
+        if (!overwrite && hasKey(ctx, toDeviceId)) return true
+        return save(ctx, toDeviceId, key)
     }
 
     /** True when a valid-length install key is stored for [deviceId]. */
@@ -83,7 +131,11 @@ object OuraInstallKeyStore {
     /** Remove the stored install key AND any adopt-intent marker for [deviceId] (e.g. on forget-device /
      *  re-pair), so a forgotten ring never carries a stale key or a stale "install my key" intent. */
     fun clear(ctx: Context, deviceId: String) {
-        prefs(ctx).edit().remove(prefKey(deviceId)).remove(adoptKey(deviceId)).apply()
+        prefs(ctx).edit()
+            .remove(prefKey(deviceId))
+            .remove(savedAtKey(deviceId))
+            .remove(adoptKey(deviceId))
+            .apply()
     }
 
     // MARK: - Adopt-intent (one-shot, gates the DANGEROUS post-factory-reset key install)

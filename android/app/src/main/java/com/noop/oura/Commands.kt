@@ -25,6 +25,11 @@ object OuraCommands {
     // The live daytime-HR feature id. Per OURA_PROTOCOL.md s5.6 / s7.1.
     const val featureDaytimeHR = 0x02
 
+    // The ring's automatic resting-HR / overnight PPG feature. This is separate from daytime live HR:
+    // live 0x02 can work while 0x08 is off, which leaves no banked IBI/HRV/sleep records after a takeover.
+    // Confirmed by the Ring-4 APK feature table and on-device feature-status captures [ring4-ble].
+    const val featureRestingHR = 0x08
+
     // The SpO2 feature id. Per OURA_PROTOCOL.md s7.1.
     const val featureSpO2 = 0x04
     // The real-steps feature id (`activity/real_steps`). Nominally server-flag-gated per
@@ -171,6 +176,23 @@ object OuraCommands {
      */
     fun liveHRUnsubscribe(): OuraCommand =
         OuraCommand("dhr_unsubscribe", intArrayOf(0x2F, 0x03, 0x26, featureDaytimeHR, 0x00))
+
+    // MARK: - Automatic overnight measurement (resting-HR feature 0x08)
+
+    /** Put the ring's resting-HR feature in its normal automatic mode: `2f 03 22 08 01`. This is the
+     *  firmware mode that records overnight PPG/IBI independently of a connected phone. [ring4-ble] */
+    fun restingHRAutomatic(): OuraCommand =
+        OuraCommand("resting_hr_automatic", intArrayOf(0x2F, 0x03, 0x22, featureRestingHR, 0x01))
+
+    /** Subscribe to resting-HR state transitions: `2f 03 26 08 01`. This matches the captured normal
+     *  `automatic/searching/measuring/state` configuration and does not request vendor scores. */
+    fun restingHRStateSubscribe(): OuraCommand =
+        OuraCommand("resting_hr_state", intArrayOf(0x2F, 0x03, 0x26, featureRestingHR, 0x01))
+
+    /** Read back resting-HR status: `2f 02 20 08`, so the strap log proves whether automatic overnight
+     *  measurement actually took effect. */
+    fun restingHRReadStatus(): OuraCommand =
+        OuraCommand("resting_hr_status", intArrayOf(0x2F, 0x02, 0x20, featureRestingHR))
 
     // Feature-status diagnostics (READ-ONLY; s5.6 / s7.1)
 

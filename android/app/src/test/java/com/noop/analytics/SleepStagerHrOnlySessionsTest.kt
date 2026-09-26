@@ -101,49 +101,18 @@ class SleepStagerHrOnlySessionsTest {
         )
     }
 
-    /**
-     * A strap that DOES bank motion must never reach this path. A WHOOP 4.0 streams a gravity vector and
-     * stages its nights from the motion spine — it is reported working — so the HR-only fallback exists
-     * only for the case where that spine has nothing. Read from the source because the gate lives at the
-     * call site in IntelligenceEngine, and a fallback that quietly widened to every strap would replace a
-     * working detector with a weaker one.
-     */
+    /** Exercise the production evidence selector so moving its implementation cannot weaken this gate. */
     @Test
     fun `the fallback is reachable only when gravity is absent`() {
-        var root = java.io.File(System.getProperty("user.dir") ?: ".").canonicalFile
-        val src = run {
-            repeat(4) {
-                val f = java.io.File(root, "android/app/src/main/java/com/noop/analytics/IntelligenceEngine.kt")
-                if (f.isFile) return@run f.readText()
-                root = root.parentFile ?: root
-            }
-            error("IntelligenceEngine.kt not found — this test must not pass by default")
-        }
-        // Scoped to the `providedSleep` expression rather than a fixed window of characters before the
-        // call. The first version measured PROXIMITY — 1200 chars back — and broke the moment a couple
-        // of diagnostic lines were inserted between the gate and the call, even though the gate still
-        // held. Containment is the actual invariant; distance never was.
-        val from = src.indexOf("val providedSleep: List<DetectedSleep> =")
-        assertTrue("IntelligenceEngine must build providedSleep", from > 0)
-        val to = src.indexOf("val tScore0", from)
-        assertTrue("expected the scoring call to follow providedSleep", to > from)
-        val expr = src.substring(from, to)
-        assertTrue("the fallback must sit inside the absent-gravity gate", expr.contains("grav.size < 2"))
-        assertTrue("IntelligenceEngine must call the HR-only fallback",
-            expr.contains("SleepStager.hrOnlySessions("))
-        assertTrue("and must only run when the device supplied no hypnogram of its own",
-            expr.contains("stored.isNotEmpty()"))
-        // The bug this replaced: the fallback inherited #804's `owner != importedDeviceId` exclusion,
-        // written to keep WHOOP straps OUT of a ring's hypnogram path — and so it never fired on the
-        // WHOOP strap it exists for. `resolveDayOwner` returns importedDeviceId whenever the owner
-        // source is absent, which on a live 5/MG install is every day. Pinned by asserting the owner
-        // check does not stand between the gravity gate and the call: it may still scope the STORED
-        // branch, but not the heart-rate one.
-        val hrOnlyBranch = expr.substring(expr.indexOf("else ->"))
-        assertTrue("the HR-only branch must not be gated on the day's owner",
-            !hrOnlyBranch.contains("importedDeviceId"))
-        assertTrue("but the stored-hypnogram branch keeps #804's exclusion",
-            expr.substring(0, expr.indexOf("else ->")).contains("owner != importedDeviceId"))
+        val (hr, rr) = window()
+        fun resolve(gravityRows: Int) = IntelligenceEngine.resolveSleepEvidence(
+            day = "2026-09-23", tzOffsetSeconds = 0,
+            ownerIsOura = false, ownerIsImported = true, gravityRows = gravityRows,
+            hr = hr, rr = rr, resp = emptyList(), editedRows = emptyList(),
+            providedRows = emptyList(), nightEvents = emptyList(), diag = {},
+        )
+        assertTrue("WHOOP with no motion must still reach HR-only detection", resolve(0).provided.isNotEmpty())
+        assertTrue("motion-equipped devices must keep their normal detector", resolve(2).provided.isEmpty())
     }
 
     /** No HR at all cannot produce a night, and must not throw. */

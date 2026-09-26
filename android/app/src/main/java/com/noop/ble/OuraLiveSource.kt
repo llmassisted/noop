@@ -20,6 +20,7 @@ import android.os.Build
 import android.os.Handler
 import android.os.Looper
 import android.os.ParcelUuid
+import android.os.SystemClock
 import com.noop.data.OuraStreamMapping
 import com.noop.data.StreamBatch
 import com.noop.data.StreamPersistence
@@ -29,12 +30,14 @@ import com.noop.oura.OuraCommand
 import com.noop.oura.OuraDriver
 import com.noop.oura.OuraDriverPhase
 import com.noop.oura.OuraEvent
+import com.noop.oura.OuraEventTag
 import com.noop.oura.OuraFraming
 import com.noop.oura.OuraIbiHr
 import com.noop.oura.OuraGatt
 import com.noop.oura.OuraCommands
 import com.noop.oura.OuraDecoders
 import com.noop.oura.OuraHistoryDrain
+import com.noop.oura.OuraIdentity
 import com.noop.oura.OuraHypnogramAssembler
 import com.noop.oura.OuraHypnogramBurst
 import com.noop.oura.OuraOuterFrame
@@ -127,6 +130,15 @@ class OuraLiveSource(
      *  has been provisioned. INJECTED, never hardcoded (the key lives in [OuraInstallKeyStore], backed by
      *  the Android Keystore). null drives the honest [needsPairing] path - no faked data. */
     private val authKey: () -> IntArray?,
+    /**
+     * Ordered recovery candidates for the currently-advertised address/serial. Older NOOP releases keyed
+     * credentials by Android's rotating BLE address, so a post-upgrade session may need to test more than
+     * [authKey]. Candidates are used only for the read-only challenge handshake; they never authorize an
+     * install. The default preserves the original single-key behaviour.
+     */
+    private val authKeyCandidates: (address: String, advertisedSerial: String?) -> List<IntArray> = { _, _ ->
+        emptyList()
+    },
     /** Persist a batch under [deviceId] - wired to `repository.insert`. Mirrors the other sources. */
     private val persist: (StreamBatch, String) -> Unit = { _, _ -> },
     /** Upsert the ring-PROVIDED reconstructed hypnogram as a night under [deviceId] (the imported/measured
@@ -192,6 +204,8 @@ class OuraLiveSource(
         val name: String,
         val rssi: Int,
         val detectedGen: OuraRingGen? = null,
+        /** Stable serial exposed by reset-mode advertisements (`Oura <serial>`), when present. */
+        val advertisedSerial: String? = null,
     )
 
     private val _discovered = MutableStateFlow<List<DiscoveredRing>>(emptyList())
@@ -230,6 +244,11 @@ class OuraLiveSource(
 
     private val _linkPhase = MutableStateFlow(LinkPhase.DISCONNECTED)
     val linkPhase: StateFlow<LinkPhase> = _linkPhase.asStateFlow()
+
+    private val _historySyncing = MutableStateFlow(false)
+    /** True from the moment a GetEvents drain starts until its cursor is committed and the driver returns
+     *  to Streaming. The Health screen observes this instead of guessing from WHOOP's backfill flag. */
+    val historySyncing: StateFlow<Boolean> = _historySyncing.asStateFlow()
 
     // MARK: - Live wear/charge indicator (#628 twin) — On wrist / Off wrist / charging
     //
@@ -307,11 +326,21 @@ class OuraLiveSource(
         if (deviceId.isNotEmpty()) OuraRealStepsDump(appContext, deviceId, log) else null
     private val scanner: BluetoothLeScanner? get() = adapter?.bluetoothLeScanner
 
-    private var gatt: BluetoothGatt? = null
+    @Volatile private var gatt: BluetoothGatt? = null
     /** Peripherals seen in the current scan, retained by address so a chosen one survives to connect. */
     private val seen = ConcurrentHashMap<String, BluetoothDevice>()
+    /** Stable serials learned from reset-mode advertisements, keyed by the current rotating address. */
+    private val seenSerials = ConcurrentHashMap<String, String>()
     /** A device asked to connect before a scan result for it landed (connect-by-address path). */
     private var pendingConnectAddress: String? = null
+    /** A coordinator reconnect scan should connect to the matching current advertisement automatically. */
+    private var autoConnectScan = false
+
+    /** Address/serial + credential candidates bound to the current GATT session. */
+    private var currentAdvertisedSerial: String? = null
+    private var sessionAuthKeys: List<IntArray> = emptyList()
+    private var sessionAuthKeyIndex = -1
+    private var currentAuthKey: IntArray? = null
 
     /** The device of the in-flight connection, remembered so a status-133 disconnect can retry it. */
     private var lastDevice: BluetoothDevice? = null
@@ -362,6 +391,13 @@ class OuraLiveSource(
      *  Swift's `loggedProductInfo`. Cleared on reset. */
     private val loggedProductInfo = mutableSetOf<String>()
 
+    /** Per-drain raw TLV tag census. Unlike the decoded-event path, this also counts unknown tags and
+     *  known tags whose payload failed validation, so a normal strap log can distinguish "ring emitted no
+     *  overnight PPG" from "NOOP did not recognise the Ring-4 record" without a separate raw capture. */
+    private val historyTagCounts = mutableMapOf<Int, Long>()
+    private var historyRecordCount = 0L
+    private var historyDecodedRecordCount = 0L
+
     // MARK: - Auto-reconnect (#912)
 
     /**
@@ -405,7 +441,7 @@ class OuraLiveSource(
      */
     private val reconnectRunnable = Runnable {
         val address = reconnectAddress
-        if (!intentionalDisconnect && address != null) connect(address)
+        if (!intentionalDisconnect && address != null) scanForPairedRing()
     }
 
     /**
@@ -437,6 +473,51 @@ class OuraLiveSource(
 
     /** All BLE work hops onto the main looper, matching the other sources + CBCentralManager(queue:.main). */
     private val handler = Handler(Looper.getMainLooper())
+
+    private val scanTimeoutRunnable: Runnable = Runnable {
+        if (!_scanning.value) return@Runnable
+        val wasReconnect = autoConnectScan
+        autoConnectScan = false
+        stopScan()
+        log("Oura: scan timed out without finding the paired ring")
+        if (wasReconnect && adoptIntent) {
+            announceNeedsPairing(SCAN_TIMEOUT_MESSAGE)
+        } else if (wasReconnect && !intentionalDisconnect) {
+            failedReconnectAttempts += 1
+            val delay = ReconnectBackoff.nextDelayMs(failedReconnectAttempts)
+            log("Oura: scanning again in ${delay / 1000}s (attempt $failedReconnectAttempts)")
+            handler.removeCallbacks(scanReconnectRunnable)
+            handler.postDelayed(scanReconnectRunnable, delay)
+        }
+    }
+    private val scanReconnectRunnable: Runnable = Runnable {
+        if (!intentionalDisconnect) scanForPairedRing()
+    }
+
+    // Android allows only one GATT operation at a time. OuraDriver intentionally returns small command
+    // batches (notably notify_all + get_nonce), so every Write Without Response must pass through one FIFO
+    // and be paced. The old direct loop submitted both in the same millisecond and ignored Android 13+'s
+    // return code; Samsung could reject/drop get_nonce while the log incorrectly claimed it was sent.
+    private val writeQueue = GattWriteQueue<OuraCommand>()
+    private var writePumpScheduled = false
+    /** Earliest monotonic time another write may enter Android, even if the FIFO was briefly empty. */
+    private var nextWriteAllowedAtMs = 0L
+    private val writePumpRunnable: Runnable = Runnable {
+        writePumpScheduled = false
+        drainWriteQueue()
+    }
+
+    /** One bounded wait for the protocol response implied by the most recently accepted auth command. */
+    @Volatile private var protocolTimeoutExpected: String? = null
+    private val protocolTimeoutRunnable: Runnable = Runnable {
+        val expected = protocolTimeoutExpected ?: return@Runnable
+        protocolTimeoutExpected = null
+        writeQueue.clear()
+        writePumpScheduled = false
+        handler.removeCallbacks(writePumpRunnable)
+        log("Oura: timed out waiting for $expected - stopping this attempt")
+        announceNeedsPairing(PROTOCOL_TIMEOUT_MESSAGE)
+    }
 
     // MARK: - Protocol state (the pure driver + reassembler own all protocol logic)
 
@@ -485,14 +566,22 @@ class OuraLiveSource(
     /** The nonce timer. One-shot; re-posted by [authWatchdogRunnable] after an escalation. */
     private val authWatchdogRunnable = Runnable { authWatchdogFired() }
 
-    /** Periodic live-HR re-engage: daytime HR auto-reverts after ~20 s, so while streaming we re-send the
-     *  enable+subscribe every ~15 s (OURA_PROTOCOL.md s5.7). The token lets stop() cancel it. */
+    /** Whether a visible screen currently requests daytime live HR. False in the background so the ring's
+     *  automatic resting/sleep measurement is not continuously overridden overnight. */
+    private var liveHRRequested = false
+    /** Whether NOOP most recently commanded the daytime-live feature on. The auth handshake necessarily
+     *  enables it once to reach Streaming; [applyLiveHRDemand] immediately restores automatic mode when no
+     *  UI wants live HR. Reset on disconnect. */
+    private var liveHRActive = false
+
+    /** Periodic live-HR re-engage: daytime HR auto-reverts after ~20 s, so while a LIVE-HR SCREEN is visible
+     *  we re-send enable+subscribe every ~15 s (OURA_PROTOCOL.md s5.7). Never runs in the background. */
     private var reengageScheduled = false
     private val reengageIntervalMs = 15_000L
     private val reengageRunnable = object : Runnable {
         override fun run() {
             val d = driver ?: return
-            if (d.phase == OuraDriverPhase.Streaming) {
+            if (liveHRRequested && liveHRActive && d.phase == OuraDriverPhase.Streaming) {
                 for (cmd in d.reengageLiveHRCommands()) write(cmd)
             }
             // Removal watchdog (#628): if the live-HR stream has gone silent past the grace window while we
@@ -505,7 +594,40 @@ class OuraLiveSource(
                 }
             }
             // Reschedule only while a session is live; stop() clears reengageScheduled + removes callbacks.
-            if (reengageScheduled) handler.postDelayed(this, reengageIntervalMs)
+            if (reengageScheduled && liveHRRequested) handler.postDelayed(this, reengageIntervalMs)
+        }
+    }
+
+    /**
+     * Toggle daytime live HR from UI demand. Authentication/history stay connected regardless; turning
+     * this off only returns feature 0x02 to automatic mode so feature 0x08 can finalize overnight resting
+     * HR/HRV normally. Safe before connect: the desired value is retained and applied on Streaming.
+     */
+    fun setLiveHRRequested(requested: Boolean) {
+        handler.post {
+            if (liveHRRequested == requested) return@post
+            liveHRRequested = requested
+            applyLiveHRDemand()
+        }
+    }
+
+    private fun applyLiveHRDemand() {
+        val d = driver ?: return
+        if (d.phase != OuraDriverPhase.Streaming) return
+        if (liveHRRequested) {
+            if (!liveHRActive) {
+                for (cmd in d.reengageLiveHRCommands()) write(cmd)
+                liveHRActive = true
+                log("Oura: daytime live HR enabled - requested by visible screen")
+            }
+            scheduleReengage()
+        } else {
+            cancelReengage()
+            if (liveHRActive) {
+                write(OuraCommands.liveHRDisable())
+                liveHRActive = false
+                log("Oura: daytime live HR paused - automatic overnight recording remains enabled")
+            }
         }
     }
 
@@ -662,16 +784,36 @@ class OuraLiveSource(
     private fun fetchHistoryIfIdle(): Unit = guardedCallback("history-fetch") {
         val d = driver ?: return@guardedCallback
         if (d.phase != OuraDriverPhase.Streaming) return@guardedCallback
+        _historySyncing.value = true
         // Arm the per-drain state: where we sought from (reboot detection), the seen/stored high-water
         // marks, and the stall/deadline guards.
         resumeCursorAtFetchStart = historyCursor
         drainStartedAtMs = System.currentTimeMillis()
         drain.reset()
+        historyTagCounts.clear()
+        historyRecordCount = 0
+        historyDecodedRecordCount = 0
         lastRequestCursor = historyCursor
         pendingContinuation = false
         handler.removeCallbacks(batchQuietRunnable)
         log("Oura: fetching history from cursor $historyCursor [cursor-fix]")
         advance(OuraTransition.StartHistoryFetch(cursor = historyCursor))
+    }
+
+    /** User-facing manual history pull. The same phase guard as the periodic fetch makes a tap during an
+     *  existing drain a safe no-op; it never overlaps two GetEvents sessions. */
+    fun syncNow() {
+        handler.post {
+            guardedCallback("manual-history-fetch") {
+                val d = driver
+                if (d?.phase == OuraDriverPhase.Streaming) {
+                    log("Oura: manual history sync requested")
+                    fetchHistoryIfIdle()
+                } else {
+                    log("Oura: manual history sync ignored - ring is not ready or a sync is already running")
+                }
+            }
+        }
     }
 
     private fun scheduleHistoryFetch() {
@@ -751,6 +893,7 @@ class OuraLiveSource(
         pendingContinuation = false
         handler.removeCallbacks(batchQuietRunnable)
         hypnogramAssembler.flush()?.let { persistHypnogramBurst(it) }
+        logHistoryTagSummary()
         // Ask the cursor commit whether it actually reset for a reboot rather than reading
         // `drain.sawPreResumeData` directly: that flag is also raised by a stale replay from a second BLE
         // client's serve position, which the #2097 judge inside `commitResumeCursor` rejects as "not a
@@ -759,6 +902,7 @@ class OuraLiveSource(
         // two lines after "not a reboot (#2097)" and burn a chained pass that only re-read the kept cursor.
         val rebootFullPullPending = commitResumeCursor(completed)
         advance(OuraTransition.HistoryCursorAdvanced(cursor = historyCursor, moreData = false))
+        _historySyncing.value = false
         if (rebootFullPullPending || resumeBacklog) {
             if (chainedDrainPasses >= MAX_CHAINED_DRAIN_PASSES) {
                 log("Oura: drain pass cap ($MAX_CHAINED_DRAIN_PASSES) reached with work remaining - " +
@@ -776,6 +920,34 @@ class OuraLiveSource(
         } else if (completed) {
             chainedDrainPasses = 0   // healthy full completion re-arms the cap for future backlogs
         }
+    }
+
+    /** Compact raw-tag proof for the exported strap log. The biometric roll-up answers the HRV question
+     *  directly; the top-tag list preserves enough detail to spot a new/unknown Ring-4 record family. */
+    private fun logHistoryTagSummary() {
+        if (historyRecordCount == 0L) {
+            log("Oura: history tag summary - no TLV records received in this drain")
+            return
+        }
+        fun count(vararg tags: Int): Long = tags.sumOf { historyTagCounts[it] ?: 0L }
+        val ibi = count(0x44, 0x60, 0x6E, 0x71, 0x80)
+        val nativeHrv = count(0x5D)
+        val sleepPhase = count(0x4B, 0x4E, 0x5A)
+        val temp = count(0x46, 0x69, 0x75)
+        val unknown = historyTagCounts.entries.sumOf { (tag, n) ->
+            if (OuraEventTag.fromRaw(tag) == null) n else 0L
+        }
+        log("Oura: history biometric tags - IBI=$ibi native_HRV=$nativeHrv sleep_phase=$sleepPhase " +
+            "temperature=$temp unknown=$unknown")
+        val top = historyTagCounts.entries
+            .sortedWith(compareByDescending<Map.Entry<Int, Long>> { it.value }.thenBy { it.key })
+            .take(HISTORY_TAG_LOG_LIMIT)
+            .joinToString(", ") { (tag, n) ->
+                val name = OuraEventTag.fromRaw(tag)?.tagName ?: "UNKNOWN"
+                "0x%02x(%s)=%d".format(tag, name, n)
+            }
+        log("Oura: history tag summary records=$historyRecordCount decoded=$historyDecodedRecordCount " +
+            "types=${historyTagCounts.size} top=[$top]")
     }
 
     /**
@@ -1088,12 +1260,28 @@ class OuraLiveSource(
     // MARK: - Scanning
 
     /** Begin scanning for Oura rings advertising the ring's base service. */
-    override fun scan() {
+    override fun scan() = beginScan(connectWhenFound = false)
+
+    /**
+     * Reconnect a registered Oura ring through its current advertisement instead of a stale Android BLE
+     * address. Oura privacy addresses rotate; direct `getRemoteDevice(oldAddress)` is not an identity.
+     */
+    fun scanForPairedRing() = guardedCallback("scan-paired") { beginScan(connectWhenFound = true) }
+
+    private fun beginScan(connectWhenFound: Boolean) {
+        stopScan()
+        handler.removeCallbacks(scanReconnectRunnable)
+        autoConnectScan = connectWhenFound
         seen.clear()
+        seenSerials.clear()
         _discovered.value = emptyList()
         _scanning.value = true
         _needsPairing.value = null
-        log("Oura: scanning for an Oura ring (${ringGen.displayName})…")
+        log(if (connectWhenFound) {
+            "Oura: scanning for the paired ring's current BLE address (${ringGen.displayName})…"
+        } else {
+            "Oura: scanning for an Oura ring (${ringGen.displayName})…"
+        })
         val sc = scanner ?: run {
             _scanning.value = false
             log("Oura: no BLE scanner available - Bluetooth may be off or unsupported")
@@ -1114,11 +1302,14 @@ class OuraLiveSource(
             .setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY)
             .build()
         sc.startScan(listOf(filter), settings, scanCallback)
+        handler.removeCallbacks(scanTimeoutRunnable)
+        handler.postDelayed(scanTimeoutRunnable, SCAN_TIMEOUT_MS)
     }
 
     /** Stop an in-progress scan. Idempotent. */
     fun stopScan() {
         _scanning.value = false
+        handler.removeCallbacks(scanTimeoutRunnable)
         if (adapter?.isEnabled == true) runCatching { scanner?.stopScan(scanCallback) }
     }
 
@@ -1126,6 +1317,7 @@ class OuraLiveSource(
 
     /** Connect to the chosen discovered ring (by address) and start the auth → enable → stream flow. */
     override fun connect(address: String) {
+        autoConnectScan = false
         stopScan()
         _needsPairing.value = null
         // Remember the paired ring so an involuntary drop auto-reconnects to it (#912). An explicit connect
@@ -1138,44 +1330,23 @@ class OuraLiveSource(
         connectToDevice(device)
     }
 
-    /**
-     * The user asked for the ring to be reconnected, from the Live console (#2305). Until now there was NO
-     * user-facing ring reconnect anywhere: [connect] is only reached from the coordinator on activation,
-     * and the only "connect" button a ring user could find on the Live screen was the WHOOP one — which is
-     * what the #2303 reporter tapped, and which ran a full 5/MG handshake under an active ring. This is
-     * the ring's own affordance: drop whatever link exists and connect again, through the same
-     * [connectToDevice] every activation uses (it already tears the prior GATT down first, so no second
-     * GATT ever runs). Nothing new goes to the ring. Also clears a needs-pairing latch — a user reconnect
-     * is the documented way out of that dead end — and never scans past a known ring. Kotlin twin of the
-     * Swift `reconnect()`.
-     */
+    /** Retry the active ring by releasing the previous GATT and discovering its current privacy address.
+     * Stored pairing credentials authenticate the discovered device; an explicit serial mismatch is
+     * rejected by the scan selector. This also clears the prior attempt's failure latch. */
     fun reconnect() {
-        _needsPairing.value = null
+        // Release the old link before scanning so the ring can advertise its current privacy address.
+        // stop() flushes pending history; the same stored credentials authenticate the discovered ring.
+        stop()
         intentionalDisconnect = false
         failedReconnectAttempts = 0
-        handler.removeCallbacks(reconnectRunnable)
-        handler.removeCallbacks(retry133Runnable)
-        val device = lastDevice
-        val address = reconnectAddress
-        when {
-            device != null -> {
-                log("Oura: reconnect requested - dropping the current link, if any, and connecting again")
-                _linkPhase.value = LinkPhase.CONNECTING
-                connectToDevice(device)
-            }
-            address != null -> {
-                log("Oura: reconnect requested")
-                connect(address)
-            }
-            else -> {
-                log("Oura: reconnect requested - no known ring, scanning")
-                scan()
-            }
-        }
+        _needsPairing.value = null
+        _linkPhase.value = LinkPhase.CONNECTING
+        scanForPairedRing()
     }
 
     private fun connectToDevice(device: BluetoothDevice) {
         lastDevice = device   // remembered so a status-133 disconnect can auto-retry the same ring
+        currentAdvertisedSerial = seenSerials[device.address]
         log("Oura: connecting to ${device.address}")
         _linkPhase.value = LinkPhase.CONNECTING
         // Tear down any prior link first so we never run two GATTs for this source.
@@ -1196,17 +1367,27 @@ class OuraLiveSource(
             log("Oura: SetNotification mask %02x this session (packed-notification A/B, Test Centre) - default is %02x"
                 .format(notificationMask, OuraCommands.NOTIFICATION_MASK_DEFAULT))
         }
-        driver = OuraDriver(ringGen = ringGen, authKey = authKey(), allowTierB = true,
-                            allowKeyInstall = adoptIntent, notificationMask = notificationMask)
+        val recovered = runCatching {
+            authKeyCandidates(device.address, currentAdvertisedSerial)
+        }.getOrDefault(emptyList())
+        val fallback = runCatching { authKey() }.getOrNull()
+        sessionAuthKeys = OuraKeyCandidates.normalize(recovered + listOfNotNull(fallback))
+        sessionAuthKeyIndex = if (sessionAuthKeys.isEmpty()) -1 else 0
+        currentAuthKey = sessionAuthKeys.firstOrNull()
+        driver = newDriver(currentAuthKey)
+        clearWritePipeline()
         reassembler.reset()
         pendingInstallKey = null       // a new connection starts with no install in flight
         _adoptPhase.value = AdoptPhase.Idle   // a stale outcome must never drive the wizard's transition
+        _historySyncing.value = false
         resetWear()   // #628: fresh session — clear any stale worn/charging badge
         // A fresh session: reset the one-shot streaming/anchor state, and never replay a stale-anchor guess.
         reachedStreaming = false
         clearAuthWatchdog()   // a fresh session starts with a clean escalation count
         authEscalations = 0
         authToggleCccdPending = 0
+
+        liveHRActive = false
         loggedFirstTemp = false
         loggedFirstSpo2.clear()
         loggedAnchor = false
@@ -1263,6 +1444,14 @@ class OuraLiveSource(
         }
     }
 
+    private fun newDriver(key: IntArray?): OuraDriver = OuraDriver(
+        ringGen = ringGen,
+        authKey = key,
+        allowTierB = true,
+        allowKeyInstall = adoptIntent,
+        notificationMask = if (notifyMaskFull()) OuraCommands.NOTIFICATION_MASK_FULL else OuraCommands.NOTIFICATION_MASK_DEFAULT,
+    )
+
     /** Tear down: cancel the connection and stop scanning, persisting anything still buffered. Idempotent. */
     override fun stop() {
         // A deliberate teardown (device switch / removal) must NOT auto-reconnect: mark it intentional and
@@ -1274,11 +1463,15 @@ class OuraLiveSource(
         failedReconnectAttempts = 0
         handler.removeCallbacks(reconnectRunnable)
         handler.removeCallbacks(retry133Runnable)
+        handler.removeCallbacks(scanReconnectRunnable)
+        clearWritePipeline()
         stopScan()
+        autoConnectScan = false
         pendingConnectAddress = null
         _linkPhase.value = LinkPhase.DISCONNECTED
         cancelReengage()
         cancelHistoryFetch()
+        _historySyncing.value = false
         handler.removeCallbacks(batchQuietRunnable)
         handler.removeCallbacks(chainedDrainRunnable)
         pendingContinuation = false
@@ -1319,10 +1512,16 @@ class OuraLiveSource(
         reachedStreaming = false
         clearAuthWatchdog()
         authToggleCccdPending = 0
+
+        liveHRActive = false
         // A stop MID-install is an honest failure (no ack will come); a stop after streaming leaves the
         // completed Streaming outcome intact so the wizard's success transition is not undone.
         if (_adoptPhase.value == AdoptPhase.InstallingKey) _adoptPhase.value = AdoptPhase.Failed
         pendingInstallKey = null
+        sessionAuthKeys = emptyList()
+        sessionAuthKeyIndex = -1
+        currentAuthKey = null
+        currentAdvertisedSerial = null
         _batteryPct.value = null   // a stale charge must not outlive the link
         resetWear()                // #628: clear the wear badge too
         flush()
@@ -1382,7 +1581,14 @@ class OuraLiveSource(
         // Batched by resolved second, exactly like the live path (#1072): a record's parked beats are
         // released as ONE persist so `ord` records their emission order instead of restarting at 0 per beat.
         val stamped = pendingAnchorEvents.map { (event, ringTimestamp) ->
-            event to (d.unixSeconds(forRingTimestamp = ringTimestamp)?.toInt() ?: now)
+            val resolved = d.unixSeconds(forRingTimestamp = ringTimestamp)
+            // A parked IBI may be a live beat that arrived before the anchor; it must never skip ahead of
+            // an unfinished history backlog. Every other parked family is history-only and may safely bank
+            // the durable cursor once its real time resolves (Swift parity).
+            if (resolved != null && event !is OuraEvent.Ibi) {
+                drain.noteStoredRingTime(ringTimestamp, resumeCursorAtFetchStart)
+            }
+            event to (resolved?.toInt() ?: now)
         }
         for ((ts, batch) in OuraStreamMapping.batched(stamped)) enqueue(batch, ts)
         pendingAnchorEvents.clear()
@@ -1407,11 +1613,14 @@ class OuraLiveSource(
             // Twin of the Apple side (Strand/BLE/OuraLiveSource.swift), which has always listed on the
             // service filter alone. Do not re-add a name-based drop here.
             val detectedGen = OuraRingGen.recognise(name)
+            val advertisedSerial = OuraIdentity.advertisedSerial(name)
+            if (advertisedSerial != null) seenSerials[address] = advertisedSerial
             val ring = DiscoveredRing(
                 address = address,
                 name = ouraAdvertisedLabel(name, "Oura"),
                 rssi = result.rssi,
                 detectedGen = detectedGen,
+                advertisedSerial = advertisedSerial,
             )
             val list = _discovered.value.toMutableList()
             val i = list.indexOfFirst { it.address == address }
@@ -1422,13 +1631,35 @@ class OuraLiveSource(
                 pendingConnectAddress = null
                 handler.post { connectToDevice(device) }
             }
+            if (autoConnectScan) {
+                val suffix = deviceId.substringAfter("${ExperimentalBrand.OURA.idPrefix}-", "")
+                val expectedSerial = suffix.takeIf(OuraIdentity::isPlausibleSerial)
+                if (OuraIdentity.mayMatchExpectedSerial(expectedSerial, advertisedSerial)) {
+                    autoConnectScan = false
+                    failedReconnectAttempts = 0
+                    handler.removeCallbacks(scanReconnectRunnable)
+                    reconnectAddress = address
+                    intentionalDisconnect = false
+                    stopScan()
+                    handler.post { connectToDevice(device) }
+                }
+            }
         }
     }
 
     // MARK: - GATT callback
 
+    /** True when Android delivers a late callback from a link superseded by a newer [gatt]. */
+    private fun isStaleGatt(candidate: BluetoothGatt): Boolean =
+        gatt?.let { active -> active !== candidate } == true
+
     private val gattCallback = object : BluetoothGattCallback() {
         override fun onConnectionStateChange(g: BluetoothGatt, status: Int, newState: Int) = guardedCallback("connection-state") {
+            if (isStaleGatt(g)) {
+                if (newState == BluetoothProfile.STATE_DISCONNECTED) runCatching { g.close() }
+                log("Oura: ignoring connection callback from a superseded GATT")
+                return@guardedCallback
+            }
             when (newState) {
                 BluetoothProfile.STATE_CONNECTED -> {
                     if (status != BluetoothGatt.GATT_SUCCESS) {
@@ -1443,6 +1674,9 @@ class OuraLiveSource(
                 BluetoothProfile.STATE_DISCONNECTED -> {
                     log("Oura: disconnected (status=$status)")
                     _linkPhase.value = LinkPhase.DISCONNECTED
+
+                    _historySyncing.value = false
+                    clearWritePipeline()
                     loggedFirstHr = false   // a reconnect should log its first sample again
                     _batteryPct.value = null
                     resetWear()             // #628: the wear badge must not survive the link dropping
@@ -1467,8 +1701,9 @@ class OuraLiveSource(
                     pendingSyncTime = null
                     loggedTierBKinds.clear()
         loggedFeatureStatuses.clear()
-        loggedProductInfo.clear()
+                    loggedProductInfo.clear()
                     reachedStreaming = false
+                    liveHRActive = false
                     // A disconnect MID-install is an honest failure (no 0x25 ack will arrive); a disconnect
                     // after streaming leaves the completed Streaming outcome intact. Drop any in-flight key
                     // WITHOUT persisting it (a failed install must never leave a wrongly-trusted key).
@@ -1502,6 +1737,7 @@ class OuraLiveSource(
         }
 
         override fun onServicesDiscovered(g: BluetoothGatt, status: Int) = guardedCallback("services-discovered") {
+            if (isStaleGatt(g)) return@guardedCallback
             log("Oura: services discovered (status=$status)")
             if (status != BluetoothGatt.GATT_SUCCESS) {
                 log("Oura: WARNING service discovery failed (status=$status) - giving up on this ring")
@@ -1519,6 +1755,7 @@ class OuraLiveSource(
         }
 
         override fun onMtuChanged(g: BluetoothGatt, mtu: Int, status: Int) = guardedCallback("mtu-changed") {
+            if (isStaleGatt(g)) return@guardedCallback
             log("Oura: MTU negotiated = $mtu (status=$status)")
             setUpNotifications(g)
         }
@@ -1528,6 +1765,7 @@ class OuraLiveSource(
             descriptor: BluetoothGattDescriptor,
             status: Int,
         ) = guardedCallback("descriptor-write") {
+            if (isStaleGatt(g)) return@guardedCallback
             if (descriptor.uuid != CCCD) return@guardedCallback
             // The auth watchdog's off/on toggle (#2304) lands here twice — the disable, then the
             // re-enable — and must NOT replay Ready: the driver is still Authenticating, so the only thing
@@ -1566,6 +1804,7 @@ class OuraLiveSource(
             ch: BluetoothGattCharacteristic,
             value: ByteArray,
         ) {
+            if (isStaleGatt(g)) return
             if (ch.uuid == NOTIFY_UUID) handleNotification(value)
         }
 
@@ -1573,6 +1812,7 @@ class OuraLiveSource(
         @Deprecated("Deprecated in Java")
         @Suppress("DEPRECATION")
         override fun onCharacteristicChanged(g: BluetoothGatt, ch: BluetoothGattCharacteristic) {
+            if (isStaleGatt(g)) return
             if (ch.uuid == NOTIFY_UUID) handleNotification(ch.value ?: return)
         }
     }
@@ -1625,7 +1865,10 @@ class OuraLiveSource(
         for (cmd in commands) write(cmd)
         // Ready is the step that writes `get_nonce`; from here the session waits on the ring, and nothing
         // else is armed until `auth OK`. Start the clock on that wait (#2304).
-        if (transition == OuraTransition.Ready && d.phase == OuraDriverPhase.Authenticating) armAuthWatchdog()
+
+        if (transition is OuraTransition.AuthCompleted && transition.status == com.noop.oura.OuraAuthStatus.SUCCESS) {
+            persistWorkingKeyUnderStableSerial()
+        }
         when (d.phase) {
             OuraDriverPhase.Streaming -> {
                 // The driver returns to Streaming after EACH history-fetch pass completes, so gate all the
@@ -1638,12 +1881,22 @@ class OuraLiveSource(
                     // The OK ack already persisted the key; nothing is left in flight.
                     _adoptPhase.value = AdoptPhase.Streaming
                     pendingInstallKey = null
-                    log("Oura: live HR enabled - streaming")
-                    scheduleReengage()
+                    log("Oura: authenticated - streaming transport ready")
+                    // The auth state machine enabled daytime HR to establish this transport. Record that
+                    // fact, then immediately reconcile it with UI demand: background sessions disable it;
+                    // the Live/Health screen keeps it active and owns the 15 s re-engage watchdog.
+                    liveHRActive = true
                     // SyncTime FIRST (s5.4, twin of Swift): sets the ring clock AND its 0x13 response
                     // carries the ring's current clock counter — the deterministic anchor that lets the
                     // whole drain below resolve real times without waiting for a lucky 0x42.
                     write(OuraCommands.syncTime(System.currentTimeMillis() / 1000L))
+                    // A factory-reset takeover can leave the SEPARATE resting-HR feature disabled even
+                    // though daytime live HR works. Restore its normal automatic/state configuration so
+                    // the ring records overnight PPG/IBI/HRV while the phone is disconnected, then read it
+                    // back so the exported log proves the result. [ring4-ble]
+                    write(OuraCommands.restingHRAutomatic())
+                    write(OuraCommands.restingHRStateSubscribe())
+                    write(OuraCommands.restingHRReadStatus())
                     // Pull last night's banked temp/SpO2/HRV/sleep-phase right away + keep a periodic pass
                     // running, and ask for battery once (the 0x0D reply routes to onBattery).
                     scheduleHistoryFetch()
@@ -1664,6 +1917,9 @@ class OuraLiveSource(
                     write(OuraCommands.getProductSerial())
                     write(OuraCommands.getProductHardware())
                 }
+                // Also runs after each history fetch returns to Streaming, covering demand that changed
+                // while the driver was FetchingHistory.
+                applyLiveHRDemand()
             }
             OuraDriverPhase.NeedsKeyInstall -> {
                 // Factory-reset ring (auth status 0x02) or no key. The dangerous key install is the ONLY
@@ -1672,10 +1928,35 @@ class OuraLiveSource(
                 if (adoptIntent) provisionKeyInstall(d) else announceNeedsPairing(KEY_INSTALL_MESSAGE)
             }
             is OuraDriverPhase.AuthFailed -> {
-                log("Oura: auth failed - the stored install key does not match this ring")
-                announceNeedsPairing(AUTH_FAILED_MESSAGE)
+                if (tryNextStoredAuthKey()) {
+                    log("Oura: stored pairing key was rejected - trying another locally stored key")
+                } else {
+                    log("Oura: auth failed - no stored install key matches this ring")
+                    announceNeedsPairing(AUTH_FAILED_MESSAGE)
+                }
             }
             else -> Unit
+        }
+    }
+
+    /** Retry the read-only challenge handshake with the next legacy address-keyed credential. */
+    private fun tryNextStoredAuthKey(): Boolean {
+        val nextIndex = sessionAuthKeyIndex + 1
+        if (nextIndex !in sessionAuthKeys.indices) return false
+        sessionAuthKeyIndex = nextIndex
+        currentAuthKey = sessionAuthKeys[nextIndex]
+        driver = newDriver(currentAuthKey)
+        advance(OuraTransition.Ready)
+        return true
+    }
+
+    /** Once a candidate authenticates, pin it to the advertised serial so address rotation stops mattering. */
+    private fun persistWorkingKeyUnderStableSerial() {
+        val serial = currentAdvertisedSerial ?: return
+        val key = currentAuthKey ?: return
+        val stableId = "${ExperimentalBrand.OURA.idPrefix}-$serial"
+        if (OuraInstallKeyStore.save(appContext, stableId, key) && stableId != deviceId) {
+            log("Oura: authenticated key recovered under the ring's stable serial identity")
         }
     }
 
@@ -1724,6 +2005,7 @@ class OuraLiveSource(
      * command. Kotlin twin of Swift's `handleKeyInstallAck`.
      */
     private fun handleKeyInstallAck(d: OuraDriver, frame: OuraOuterFrame) = guardedCallback("key-install-ack") {
+        completeProtocolWait("key-install acknowledgement")
         val key = pendingInstallKey ?: return@guardedCallback              // no install in flight
         if (d.phase != OuraDriverPhase.InstallingKey) return@guardedCallback // not our install in flight
         val status = frame.body.firstOrNull()
@@ -1733,6 +2015,10 @@ class OuraLiveSource(
                 log("Oura: the installed key could not be stored - cannot adopt this ring")
                 announceNeedsPairing(KEY_INSTALL_MESSAGE)
                 return@guardedCallback
+            }
+            currentAuthKey = key
+            currentAdvertisedSerial?.let { serial ->
+                OuraInstallKeyStore.save(appContext, "${ExperimentalBrand.OURA.idPrefix}-$serial", key)
             }
             log("Oura: key installed and stored - re-authenticating with the new key")
             pendingInstallKey = null
@@ -1762,24 +2048,123 @@ class OuraLiveSource(
         write(OuraCommands.liveHRUnsubscribe())
     }
 
-    /** Write one built command to the ring's write characteristic (Write Without Response). Logged by its
-     *  short label only (never bytes or an address). */
-    private fun write(cmd: OuraCommand) = guardedCallback("write") {
-        val g = gatt ?: return@guardedCallback
-        val ch = writeChar ?: return@guardedCallback
-        val bytes = ByteArray(cmd.bytes.size) { cmd.bytes[it].toByte() }
-        log("Oura: → ${cmd.label}")
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            val rc = g.writeCharacteristic(ch, bytes, BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE)
-            lastWriteAccepted = rc == android.bluetooth.BluetoothStatusCodes.SUCCESS
-        } else {
-            @Suppress("DEPRECATION")
-            run {
-                ch.writeType = BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE
-                ch.value = bytes
-                lastWriteAccepted = g.writeCharacteristic(ch)
+    /** Enqueue one Write Without Response. All queue mutation and GATT submission runs on main. */
+    private fun write(cmd: OuraCommand) {
+        handler.post {
+            guardedCallback("write-enqueue") {
+                writeQueue.add(cmd)
+                scheduleWritePump(0L)
             }
         }
+    }
+
+    private fun scheduleWritePump(delayMs: Long) {
+        if (writePumpScheduled) return
+        writePumpScheduled = true
+        val effectiveDelay = GattWritePacing.delayMs(
+            nowMs = SystemClock.uptimeMillis(),
+            nextAllowedAtMs = nextWriteAllowedAtMs,
+            requestedDelayMs = delayMs,
+        )
+        handler.postDelayed(writePumpRunnable, effectiveDelay)
+    }
+
+    /** Submit only the FIFO head and honor Android 13+'s integer status result. */
+    private fun drainWriteQueue() = guardedCallback("write") {
+        val cmd = writeQueue.peek() ?: return@guardedCallback
+        val g = gatt
+        val ch = writeChar
+        if (g == null || ch == null) {
+            writeQueue.clear()
+            return@guardedCallback
+        }
+        val bytes = ByteArray(cmd.bytes.size) { cmd.bytes[it].toByte() }
+        val expectedResponse = expectedResponseFor(cmd)
+        if (expectedResponse != null) {
+            // Publish the expectation BEFORE submission: a fast notification can arrive on the binder
+            // thread immediately after writeCharacteristic returns. If it completes this expectation,
+            // armPreparedProtocolTimeout observes null and does not install a stale timer afterward.
+            protocolTimeoutExpected = expectedResponse
+            handler.removeCallbacks(protocolTimeoutRunnable)
+        }
+        val rc = runCatching {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                g.writeCharacteristic(ch, bytes, BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE)
+            } else {
+                @Suppress("DEPRECATION")
+                run {
+                    ch.writeType = BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE
+                    ch.value = bytes
+                    if (g.writeCharacteristic(ch)) GATT_API_SUCCESS else LEGACY_WRITE_REJECTED
+                }
+            }
+        }.getOrElse {
+            log("Oura: ${cmd.label} write threw ${it.javaClass.simpleName}")
+            LEGACY_WRITE_REJECTED
+        }
+
+        lastWriteAccepted = rc == GATT_API_SUCCESS
+        if (rc == GATT_API_SUCCESS) {
+            writeQueue.accepted()
+            // Keep pacing even when the queue is momentarily empty: advance() can post the next command
+            // from a binder thread just after this acceptance, and it must not slip through immediately.
+            nextWriteAllowedAtMs = SystemClock.uptimeMillis() + WRITE_SPACING_MS
+            log("Oura: → ${cmd.label} (accepted by Android)")
+            if (cmd.label == "get_nonce") armAuthWatchdog()
+            armPreparedProtocolTimeout(expectedResponse)
+            if (writeQueue.size > 0) scheduleWritePump(0L)
+        } else {
+            if (expectedResponse != null && protocolTimeoutExpected == expectedResponse) {
+                protocolTimeoutExpected = null
+            }
+            when (writeQueue.rejected()) {
+                GattWriteQueue.Rejection.Retry -> {
+                    log("Oura: Android rejected ${cmd.label} write (rc=$rc) - retrying")
+                    scheduleWritePump(WRITE_RETRY_MS)
+                }
+                GattWriteQueue.Rejection.Dropped -> {
+                    log("Oura: Android repeatedly rejected ${cmd.label} write (rc=$rc) - stopping this attempt")
+                    writeQueue.clear()
+                    announceNeedsPairing(WRITE_FAILED_MESSAGE)
+                }
+            }
+        }
+    }
+
+    private fun expectedResponseFor(cmd: OuraCommand): String? = when {
+        cmd.label == "DANGEROUS_install_key" -> "key-install acknowledgement"
+        // The nonce uses OuraAuthWatchdog (resend/toggle/reconnect), armed after Android accepts it.
+        cmd.label == "get_nonce" -> null
+        cmd.label == "submit_proof" -> "authentication result"
+        !reachedStreaming && cmd.label.startsWith("dhr_") -> "live-HR acknowledgement"
+        else -> null
+    }
+
+    private fun armPreparedProtocolTimeout(expected: String?) {
+        if (expected == null || protocolTimeoutExpected != expected) return
+        handler.postDelayed(protocolTimeoutRunnable, PROTOCOL_TIMEOUT_MS)
+    }
+
+    private fun completeProtocolWait(expected: String) {
+        if (protocolTimeoutExpected != expected) return
+        protocolTimeoutExpected = null
+        handler.removeCallbacks(protocolTimeoutRunnable)
+    }
+
+    private fun clearWritePipeline() {
+        // add/drain already run on main; clear must obey the same confinement. Disconnect callbacks arrive
+        // on a binder thread and coordinator stop() may arrive on its IO scope, so mutating ArrayDeque here
+        // directly could race an accepted head and remove the next command instead.
+        if (Looper.myLooper() != handler.looper) {
+            handler.post { clearWritePipeline() }
+            return
+        }
+        writeQueue.clear()
+        writePumpScheduled = false
+        nextWriteAllowedAtMs = 0L
+        handler.removeCallbacks(writePumpRunnable)
+        protocolTimeoutExpected = null
+        handler.removeCallbacks(protocolTimeoutRunnable)
     }
 
     /**
@@ -1824,7 +2209,7 @@ class OuraLiveSource(
                                 log("Oura: generation from hardware id $str is ${gen.displayName} (was ${ringGen.displayName}) - correcting model")
                                 onModel(gen.displayName)
                             }
-                        } else if (isPlausibleSerial(str)) {
+                        } else if (OuraIdentity.isPlausibleSerial(str)) {
                             onSerial(str)
                         }
                     }
@@ -1874,15 +2259,19 @@ class OuraLiveSource(
                 // envelope ring-time advances the drain's in-session continuation cursor (open_oura
                 // drain_events tracks the max timestamp of EVERY batch event), and while a continuation
                 // is pending the batch-quiet window stays open as long as records keep arriving.
-                val events = d.ingest(rec)
-                for (e in events) {
-                    e.envelopeRingTimestamp?.let { drain.noteSeenRingTime(it) }
+                val isHistoryRecord = d.phase == OuraDriverPhase.FetchingHistory
+                if (isHistoryRecord) {
+                    // The continuation cursor tracks EVERY TLV record, not only records whose tag/payload
+                    // decoded into an OuraEvent. Otherwise an all-unknown Ring-4 batch appears to make no
+                    // progress and gets re-served forever.
+                    drain.noteSeenRingTime(rec.ringTimestamp)
+                    historyRecordCount += 1
+                    historyTagCounts[rec.type] = (historyTagCounts[rec.type] ?: 0L) + 1L
                 }
-                // The drain now has a ring-time reference that needs no anchor, so a 0x13 reply parked at
-                // connect may be resolvable. Retry BEFORE emit, so this batch anchors straight away
-                // instead of parking into pendingAnchorEvents and being drained a moment later (2026-09-02/03 captures).
+                val events = d.ingest(rec)
+                if (isHistoryRecord && events.isNotEmpty()) historyDecodedRecordCount += 1
                 retryPendingSyncTimeAnchor(d)
-                if (pendingContinuation && events.isNotEmpty()) {
+                if (pendingContinuation && isHistoryRecord) {
                     handler.removeCallbacks(batchQuietRunnable)
                     handler.postDelayed(batchQuietRunnable, batchQuietMs)
                 }
@@ -1897,13 +2286,19 @@ class OuraLiveSource(
             is OuraDriver.SecureRouting.Nonce -> {
                 clearAuthWatchdog()   // the ring answered: the healthy path, and the watchdog's only exit
                 silentSessionsInARow = 0
+
+                completeProtocolWait("authentication nonce")
                 advance(OuraTransition.NonceReceived(routing.nonce))
             }
             is OuraDriver.SecureRouting.AuthStatus -> {
+                completeProtocolWait("authentication result")
                 log("Oura: auth status = ${routing.status.name}")
                 advance(OuraTransition.AuthCompleted(routing.status))
             }
-            OuraDriver.SecureRouting.EnableAck -> advance(OuraTransition.EnableAckReceived)
+            OuraDriver.SecureRouting.EnableAck -> {
+                completeProtocolWait("live-HR acknowledgement")
+                advance(OuraTransition.EnableAckReceived)
+            }
             is OuraDriver.SecureRouting.FeatureStatus -> logFeatureStatus(routing.value)   // read-only; no advance
             is OuraDriver.SecureRouting.LiveHRPush -> emit(d.ingestLiveHRPush(routing.body))
             OuraDriver.SecureRouting.Unhandled -> Unit
@@ -1922,13 +2317,19 @@ class OuraLiveSource(
             OuraCommands.featureSpO2 -> "SpO2 (0x04)"
             OuraCommands.featureRealSteps -> "real_steps (0x0b)"
             OuraCommands.featureDaytimeHR -> "daytime-HR (0x02)"
+            OuraCommands.featureRestingHR -> "resting-HR / overnight PPG (0x08)"
             else -> "0x${st.feature.toString(16)}"
         }
         // A gated/unavailable feature reports ALL-ZERO (mode/status/state); the streaming daytime-HR, by
         // contrast, reads mode=1 status=0x11 state=2. Flag the all-zero case as the honest "cloud never
         // enabled it" — NOT `subscription==0` alone, since daytime-HR is subscription=0 yet active.
         val off = st.mode == 0 && st.status == 0 && st.state == 0
-        val gate = if (off) " - INACTIVE (server-gated off; the cloud never enabled it, not emitted offline)" else ""
+        val gate = when {
+            !off -> ""
+            st.feature == OuraCommands.featureRestingHR ->
+                " - INACTIVE (automatic overnight HR/HRV recording is off)"
+            else -> " - INACTIVE (server-gated off; the cloud never enabled it, not emitted offline)"
+        }
         // Name the enum fields so the log reads plainly (OURA_PROTOCOL.md s7.1 [ring4-ble]) — e.g. a gated
         // feature prints `mode=0 (off) … subscription=0 (off)`, the active daytime-HR `mode=1 (automatic)`.
         log("Oura: feature status $name mode=${st.mode} (${featureModeName(st.mode)}) status=${st.status} " +
@@ -2285,7 +2686,14 @@ class OuraLiveSource(
      */
     private fun enqueueAnchoredOrPark(event: OuraEvent, ringTimestamp: Long, d: OuraDriver) {
         val ts = d.unixSeconds(forRingTimestamp = ringTimestamp)
-        if (ts != null) enqueue(listOf(event), ts.toInt()) else pendingAnchorEvents.add(event to ringTimestamp)
+        if (ts != null) {
+            enqueue(listOf(event), ts.toInt())
+            // This helper is used only by history-only signal families (temp/SpO2/native-HRV/motion).
+            // Android had lost Swift's matching call, leaving cursor 0 forever despite successful stores.
+            drain.noteStoredRingTime(ringTimestamp, resumeCursorAtFetchStart)
+        } else {
+            pendingAnchorEvents.add(event to ringTimestamp)
+        }
     }
 
     private fun handleBattery(pct: Int) = guardedCallback("battery") {
@@ -2446,6 +2854,7 @@ class OuraLiveSource(
      * Mirrors the Swift `announceNeedsPairing`.
      */
     private fun announceNeedsPairing(message: String) {
+        clearWritePipeline()
         // A failed install must drop its pending key whether or not this is the first announce.
         pendingInstallKey = null
         _adoptPhase.value = AdoptPhase.Failed
@@ -2491,6 +2900,18 @@ class OuraLiveSource(
         /** Android's infamous generic GATT connect failure (`BluetoothGatt.GATT_ERROR`, not a public
          *  constant). We auto-retry it once. */
         private const val GATT_ERROR_133 = 133
+
+        /** `BluetoothStatusCodes.SUCCESS`; kept numeric so API 26-30 never resolve the API-31 class. */
+        private const val GATT_API_SUCCESS = 0
+        private const val LEGACY_WRITE_REJECTED = -1
+        /** Conservative pacing for Samsung/Android GATT Write Without Response serialization. */
+        private const val WRITE_SPACING_MS = 75L
+        private const val WRITE_RETRY_MS = 50L
+        private const val PROTOCOL_TIMEOUT_MS = 12_000L
+        private const val SCAN_TIMEOUT_MS = 30_000L
+
+        /** Keep the raw tag census compact enough for the rolling strap log while preserving its leaders. */
+        private const val HISTORY_TAG_LOG_LIMIT = 24
 
         /** Max self-chained drain passes per session (twin of Swift's maxChainedDrainPasses). */
         private const val MAX_CHAINED_DRAIN_PASSES = 6
@@ -2582,6 +3003,18 @@ class OuraLiveSource(
             "This Oura ring rejected the stored pairing key. Live data isn't available. The ring is not " +
                 "damaged: re-pair it in the Oura app to set it up again, or export from the Oura app and " +
                 "use file import."
+
+        private const val PROTOCOL_TIMEOUT_MESSAGE =
+            "The ring stopped answering during authentication. This attempt was stopped safely; NOOP will " +
+                "not install another key automatically. Keep the ring near the phone and reconnect."
+
+        private const val WRITE_FAILED_MESSAGE =
+            "Android's Bluetooth stack would not accept a ring command, so this attempt was stopped safely. " +
+                "Toggle Bluetooth and reconnect; do not factory-reset the ring again."
+
+        private const val SCAN_TIMEOUT_MESSAGE =
+            "NOOP couldn't find the ring before the scan timed out. Keep it close to the phone and try " +
+                "again; do not factory-reset or take over the ring again."
     }
 }
 
