@@ -1,10 +1,15 @@
 package com.noop.ui
 
+import com.noop.analytics.SleepStager
 import com.noop.data.EventRow
 import com.noop.data.OuraStreamMapping
+import com.noop.data.RrInterval
 import com.noop.data.SleepSession
 import java.time.Instant
 import java.time.ZoneId
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import org.json.JSONObject
 
 /** One wake-day summary of the Oura ring's own open 0x5D five-minute RMSSD buckets. */
@@ -16,6 +21,14 @@ internal data class OuraNativeHrvReading(
      *  the UI-only NOOP comparator can read the same resting interval from the durable R-R stream. */
     val windowStartTs: Long,
     val windowEndTs: Long,
+)
+
+/** One NOOP-side value used only in the Oura comparison card. Canonical values come from DailyMetric;
+ * resting-window fallbacks use raw R-R and never alter DailyMetric or Charge. */
+internal data class NoopHrvComparisonReading(
+    val day: String,
+    val value: Double,
+    val fromRestingWindow: Boolean,
 )
 
 /**
@@ -30,6 +43,33 @@ internal data class OuraNativeHrvReading(
  * measurement visible and provides its exact interval to the separately-labelled NOOP RMSSD comparator.
  */
 internal object OuraNativeHrv {
+    /** Fill comparison gaps one resting window at a time. A single oldest-first capped query over the
+     * whole history discards recent nights once earlier beats consume its limit. Per-window reads also
+     * keep only one night's raw beats in memory and preserve every canonical NOOP reading. */
+    suspend fun loadComparisons(
+        native: List<OuraNativeHrvReading>,
+        canonical: List<NoopHrvComparisonReading>,
+        readRr: suspend (from: Long, to: Long, limit: Int) -> List<RrInterval>,
+    ): List<NoopHrvComparisonReading> {
+        val canonicalDays = canonical.mapTo(HashSet()) { it.day }
+        val missing = native.filter { it.day !in canonicalDays }
+        val comparisons = canonical.toMutableList()
+        for (reading in missing) {
+            val rr = try {
+                readRr(reading.windowStartTs, reading.windowEndTs, RR_LIMIT_PER_WINDOW)
+            } catch (e: CancellationException) {
+                throw e
+            } catch (_: Exception) {
+                continue
+            }
+            val value = withContext(Dispatchers.Default) {
+                SleepStager.sessionAvgHRV(reading.windowStartTs, reading.windowEndTs, rr)
+            } ?: continue
+            comparisons.add(NoopHrvComparisonReading(reading.day, value, fromRestingWindow = true))
+        }
+        return comparisons.sortedBy { it.day }
+    }
+
     fun aggregate(
         events: List<EventRow>,
         sleepSessions: List<SleepSession>,
@@ -89,4 +129,5 @@ internal object OuraNativeHrv {
     }.getOrNull()
 
     private const val FIVE_MINUTES_SECONDS = 5L * 60L
+    private const val RR_LIMIT_PER_WINDOW = 250_000
 }

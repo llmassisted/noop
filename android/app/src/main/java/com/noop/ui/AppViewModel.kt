@@ -876,9 +876,15 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
      */
     private val analyzeKick = Channel<Unit>(Channel.CONFLATED)
     /** Android can keep the current Compose destination mounted while the Activity is backgrounded, so
-     *  [realtimeWanters] alone is not proof that anyone can see live HR. Main-thread lifecycle callbacks and
-     *  request/release calls own this flag together. */
+     *  [realtimeWanters] alone is not proof that anyone can see live HR. NoopRoot's lifecycle observer
+     *  synchronizes this flag even when the ViewModel is created after the Activity has resumed. */
     private var appActivityResumed = false
+
+    /** Apply the Activity's current lifecycle state without losing the mounted screens' HR demand. */
+    fun setActivityResumed(resumed: Boolean) {
+        appActivityResumed = resumed
+        noopApp.sourceCoordinator.setOuraLiveHrRequested(resumed && realtimeWanters > 0)
+    }
 
     /**
      * #78 hole-4: the app-foreground hook for the bond-loop salvage probe. Every activity resume runs
@@ -890,8 +896,6 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
      */
     private val salvageProbeLifecycleCallbacks = object : Application.ActivityLifecycleCallbacks {
         override fun onActivityResumed(activity: android.app.Activity) {
-            appActivityResumed = true
-            noopApp.sourceCoordinator.setOuraLiveHrRequested(realtimeWanters > 0)
             ble.salvageProbeIfBondLoopPaused()
             // #386 self-heal: nudge the analyze loop so a night the killed overnight tick never scored is
             // caught up now. Gated + coalesced downstream, so a healthy resume costs one fingerprint read.
@@ -899,14 +903,8 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         }
         override fun onActivityCreated(activity: android.app.Activity, savedInstanceState: android.os.Bundle?) {}
         override fun onActivityStarted(activity: android.app.Activity) {}
-        override fun onActivityPaused(activity: android.app.Activity) {
-            appActivityResumed = false
-            noopApp.sourceCoordinator.setOuraLiveHrRequested(false)
-        }
-        override fun onActivityStopped(activity: android.app.Activity) {
-            appActivityResumed = false
-            noopApp.sourceCoordinator.setOuraLiveHrRequested(false)
-        }
+        override fun onActivityPaused(activity: android.app.Activity) {}
+        override fun onActivityStopped(activity: android.app.Activity) {}
         override fun onActivitySaveInstanceState(activity: android.app.Activity, outState: android.os.Bundle) {}
         override fun onActivityDestroyed(activity: android.app.Activity) {}
     }

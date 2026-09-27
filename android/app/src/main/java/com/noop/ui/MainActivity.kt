@@ -1552,13 +1552,17 @@ fun NoopRoot() {
     // onboarding), so this is placed above the onboarding/terms gates rather than duplicated below them.
     val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
     androidx.compose.runtime.DisposableEffect(lifecycleOwner, appViewModel) {
+        val liveHrLifecycle = OuraLiveHrLifecycle(lifecycleOwner.lifecycle, appViewModel::setActivityResumed)
         val observer = androidx.lifecycle.LifecycleEventObserver { _, event ->
             if (event == androidx.lifecycle.Lifecycle.Event.ON_RESUME) {
                 appViewModel.ble.onForeground()
             }
         }
         lifecycleOwner.lifecycle.addObserver(observer)
-        onDispose { lifecycleOwner.lifecycle.removeObserver(observer) }
+        onDispose {
+            lifecycleOwner.lifecycle.removeObserver(observer)
+            liveHrLifecycle.close()
+        }
     }
 
     var onboarded by remember {

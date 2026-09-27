@@ -83,7 +83,6 @@ import com.noop.analytics.FitnessReadinessItem
 import com.noop.analytics.FitnessReadinessRole
 import com.noop.analytics.FitnessReadinessStatus
 import com.noop.analytics.SkinTempDisplay
-import com.noop.analytics.SleepStager
 import com.noop.analytics.VitalBands
 import com.noop.ble.LiveState
 import com.noop.data.DailyMetric
@@ -2405,15 +2404,6 @@ private data class OuraHrvSources(
     val oura: List<OuraNativeHrvReading>,
 )
 
-/** One NOOP-side value used only in the Oura comparison card. A canonical value came from a detected
- *  sleep session and is already a DailyMetric; a resting-window fallback is freshly calculated from the
- *  durable R-R rows spanning Oura's native 0x5D buckets and deliberately does not alter DailyMetric/Charge. */
-private data class NoopHrvComparisonReading(
-    val day: String,
-    val value: Double,
-    val fromRestingWindow: Boolean,
-)
-
 private suspend fun loadOuraHrvSources(
     vm: AppViewModel,
     days: List<DailyMetric>,
@@ -2465,37 +2455,17 @@ private suspend fun loadOuraHrvSources(
     // Ring 4's automatic-resting mode supplied real IBI + native RMSSD but no sleep phases in the field
     // capture. Fill only comparison-card gaps from the SAME resting interval; do not persist these values
     // as a DailyMetric, do not call it detected sleep, and do not let it affect Charge.
-    val canonicalDays = canonicalNoop.mapTo(HashSet()) { it.day }
-    val missing = oura.filter { it.day !in canonicalDays }
-    val fallbackNoop = if (missing.isEmpty()) {
-        emptyList()
-    } else {
-        val rrFrom = missing.minOf { it.windowStartTs }
-        val rrTo = missing.maxOf { it.windowEndTs }
-        val rr = runCatching {
-            vm.repo.rrIntervalsForDevice(sourceId, rrFrom, rrTo, OURA_HRV_RR_LIMIT)
-        }.getOrDefault(emptyList())
-        withContext(Dispatchers.Default) {
-            missing.mapNotNull { native ->
-                SleepStager.sessionAvgHRV(native.windowStartTs, native.windowEndTs, rr)?.let { value ->
-                    NoopHrvComparisonReading(
-                        day = native.day,
-                        value = value,
-                        fromRestingWindow = true,
-                    )
-                }
-            }
-        }
+    val comparisons = OuraNativeHrv.loadComparisons(oura, canonicalNoop) { rrFrom, rrTo, limit ->
+        vm.repo.rrIntervalsForDevice(sourceId, rrFrom, rrTo, limit)
     }
     return OuraHrvSources(
-        noop = (canonicalNoop + fallbackNoop).sortedBy { it.day },
+        noop = comparisons,
         oura = oura,
     )
 }
 
 private const val OURA_NATIVE_HRV_EVENT_LIMIT = 250_000
 private const val OURA_NATIVE_HRV_SLEEP_LIMIT = 5_000
-private const val OURA_HRV_RR_LIMIT = 250_000
 
 /** Side-by-side values for the newest wake-day both sources share. If no day overlaps yet, each column
  *  shows its own latest day and labels it explicitly, so unlike-looking dates are never presented as a
