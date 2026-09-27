@@ -93,9 +93,11 @@ import java.time.ZoneId
 import java.time.format.DateTimeFormatter
 import java.util.Locale
 import kotlin.math.roundToInt
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.withContext
 
 // MARK: - Health Monitor (ported from Strand/Screens/HealthView.swift)
 //
@@ -209,6 +211,10 @@ fun HealthScreen(
             item { Spacer(Modifier.height(Metrics.selectorTopUp)) }
             item { FitnessAgeSection(vm = vm, days = days, profile = profile, onOpenSettings = onOpenSettings) }
             item { VitalitySection(vm = vm, days = days, profile = profile) }
+            // OURA ACTIVITY — a Tier-B ESTIMATE from the ring's own MET stream (0x50): active minutes,
+            // MET-minutes and estimated active kcal. Hidden unless the active device has OURA_MET rows, so a
+            // WHOOP-only install never sees it. Never scored, never a step count.
+            item { OuraActivitySection(vm = vm, days = days, profile = profile) }
             // SKIN TEMPERATURE (v5 pillar) — Cycle awareness (opt-in), Body clock + an illness heads-up,
             // each from a pure engine RESULT the ViewModel publishes. A section of Health, never its own
             // destination (umbrella §2.4). Non-clinical observations about your own numbers.
@@ -263,11 +269,8 @@ fun HealthScreen(
 //
 // Manual "Sync now" control + honest sync status, mirroring HealthView.swift's SyncStatusSection (which
 // itself mirrors this screen's Android Sync-now button). Reads only LiveState (connection + backfill +
-// last-sync), so the ~1Hz HR hero doesn't drag it through re-renders. The button reaches the BLE engine's
-// gated entry point (vm.syncNow → WhoopBleClient.syncNow) — a no-op when no strap is connected or a sync
-// is already running, so it's safe regardless of state. The status line explains itself when no strap is
-// connected; while a sync runs it shows the shared in-progress note + live chunk count; otherwise it
-// shows when history last synced.
+// last-sync), so the ~1Hz HR hero doesn't drag it through re-renders. The button reaches the active Oura
+// source or the WHOOP BLE engine. The status line follows that source's own in-progress state.
 
 @Composable
 private fun SyncStatusSection(vm: AppViewModel, onSyncNow: () -> Unit) {
@@ -277,15 +280,17 @@ private fun SyncStatusSection(vm: AppViewModel, onSyncNow: () -> Unit) {
     // ~1Hz churn to the (cheap) sync card alone. The fields read below are slow-changing; only this
     // leaf re-runs per tick. Appearance + behaviour identical.
     val live by vm.live.collectAsStateWithLifecycle()
-    // The strap link is usable for a manual offload kick (matches WhoopBleClient.syncNow's own gate).
-    // historyReady, not `bonded`: on a 5/MG the live-HR path sets `bonded` for a strap that has never
-    // completed a handshake, so this button enabled itself and beginBackfill then declined it silently.
-    val canSync = live.connected && live.bonded && live.historyReady && !live.backfilling
+    val activeIsOura by vm.ouraActive.collectAsStateWithLifecycle()
+    val ringPhase by vm.ouraLinkPhase.collectAsStateWithLifecycle()
+    val ouraHistorySyncing by vm.ouraHistorySyncing.collectAsStateWithLifecycle()
+    val connected = if (activeIsOura) ringPhase == com.noop.ble.OuraLiveSource.LinkPhase.AUTHENTICATED else live.connected
+    val syncing = if (activeIsOura) ouraHistorySyncing else live.backfilling
+    val canSync = connected && !syncing && (activeIsOura || (live.bonded && live.historyReady))
     Column(verticalArrangement = Arrangement.spacedBy(Metrics.gap)) {
         SectionHeader(
             "Sync",
             overline = "Strap history",
-            trailing = if (live.connected) (if (live.bonded) "Connected" else "Pairing…") else "Offline",
+            trailing = if (connected) "Connected" else if (live.connected) "Waiting for HR…" else "Offline",
         )
 
         NoopCard(tint = Palette.chargeColor) {
@@ -293,13 +298,19 @@ private fun SyncStatusSection(vm: AppViewModel, onSyncNow: () -> Unit) {
                 // Status line: an in-progress note while syncing (with the live chunk count), an honest
                 // "not connected" pill, a last-synced read-out, else a "ready to sync"/"pairing" pill.
                 when {
-                    live.backfilling -> SyncingHistoryNote(chunks = live.syncChunksThisSession)
-                    !live.connected -> StatePill(
+                    syncing -> SyncingHistoryNote(chunks = live.syncChunksThisSession)
+                    !connected -> StatePill(
                         title = uiString(R.string.l10n_health_screen_no_strap_connected_fb37b99e),
                         tone = StrandTone.Neutral,
                         showsDot = false,
                     )
-                    live.lastSyncAt != null -> Row(
+                    !activeIsOura && !live.bonded -> StatePill(
+                        title = uiString(R.string.oura_hrv_pairing),
+                        tone = StrandTone.Neutral,
+                        showsDot = true,
+                        pulsing = true,
+                    )
+                    !activeIsOura && live.lastSyncAt != null -> Row(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(Metrics.space8),
                     ) {
@@ -315,10 +326,10 @@ private fun SyncStatusSection(vm: AppViewModel, onSyncNow: () -> Unit) {
                         // sync", not pulsing, directly above a DISABLED Sync now — on exactly the strap
                         // that cannot sync. Before the button was gated the two agreed (both wrong);
                         // gating one without the other is what made them contradict.
-                        title = if (live.historyReady) "Ready to sync" else "Pairing…",
+                        title = if (activeIsOura || live.historyReady) "Ready to sync" else "Pairing…",
                         tone = StrandTone.Accent,
                         showsDot = true,
-                        pulsing = !live.historyReady,
+                        pulsing = !activeIsOura && !live.historyReady,
                     )
                 }
 
@@ -328,7 +339,7 @@ private fun SyncStatusSection(vm: AppViewModel, onSyncNow: () -> Unit) {
                 // connected+bonded and not already syncing; the gated BLE entry point is a safe no-op
                 // otherwise. (Total pending records are unknowable from the protocol, so no progress %.)
                 NoopButton(
-                    text = if (live.backfilling) "Syncing…" else "Sync now",
+                    text = if (syncing) "Syncing…" else "Sync now",
                     leadingIcon = Icons.Filled.Sync,
                     kind = NoopButtonKind.Secondary,
                     fullWidth = true,
@@ -337,7 +348,7 @@ private fun SyncStatusSection(vm: AppViewModel, onSyncNow: () -> Unit) {
                         contentDescription = if (canSync) {
                             "Sync now. Pulls your strap's stored history immediately, without waiting " +
                                 "for the next automatic sync."
-                        } else if (live.backfilling) {
+                        } else if (syncing) {
                             "Sync now. A sync is already in progress."
                         } else {
                             "Sync now. Connect your strap first."
@@ -347,7 +358,7 @@ private fun SyncStatusSection(vm: AppViewModel, onSyncNow: () -> Unit) {
                 )
 
                 Text(
-                    syncHelperText(live),
+                    syncHelperText(live, activeIsOura, connected, syncing),
                     style = NoopType.footnote,
                     color = Palette.textTertiary,
                 )
@@ -358,11 +369,18 @@ private fun SyncStatusSection(vm: AppViewModel, onSyncNow: () -> Unit) {
 
 /** The helper line below the Sync-now button: explains the current state (syncing / offline / pairing /
  *  ready), copy-matched to HealthView.swift's SyncStatusSection.helperText. */
-private fun syncHelperText(live: LiveState): String = when {
-    live.backfilling -> "Pulling your strap's stored history. This drains oldest-first; a deep backlog " +
+private fun syncHelperText(
+    live: LiveState,
+    activeIsOura: Boolean,
+    connected: Boolean,
+    syncing: Boolean,
+): String = when {
+    syncing -> "Pulling ${if (activeIsOura) "your ring's" else "your strap's"} stored history. This drains oldest-first; a deep backlog " +
         "now continues automatically across passes instead of waiting between syncs."
-    !live.connected -> "Connect your strap to sync its stored history. Until then, only imported data " +
+    !connected -> "Connect your strap to sync its stored history. Until then, only imported data " +
         "shows here."
+    activeIsOura -> "Pulls the ring's banked temperature, IBI, HRV, and sleep records now. NOOP also checks " +
+        "for new ring history periodically while connected."
     // historyReady, not `bonded`. This branch already said the right thing and simply never fired on the
     // strap that needed it: `bonded` is set by the live-HR path, so a 5/MG that never completed a
     // handshake fell through to the "syncs right away" line, directly under a Sync-now button that had
@@ -568,7 +586,7 @@ private fun HealthContributorsSection(day: DailyMetric?) {
                 // a staggered fade+rise, mirroring iOS `.staggeredAppear(index:)`.
                 ContributorBar(
                     label = "HRV",
-                    readout = hrv?.let { "${it.roundToInt()} ms" } ?: "—",
+                    readout = hrv?.let { uiString(R.string.today_driver_value_ms, it.roundToInt()) } ?: "—",
                     fraction = hrv?.let { (it - 20.0) / 100.0 },
                     color = Palette.metricCyan,
                     modifier = Modifier.staggeredAppear(0),
@@ -819,6 +837,103 @@ private fun VitalitySection(vm: AppViewModel, days: List<DailyMetric>, profile: 
         }
     }
 }
+
+/**
+ * Oura activity ESTIMATE from the ring's MET stream (0x50, [com.noop.data.OuraStreamMapping.EVENT_MET]):
+ * today's active minutes, MET-minutes and estimated active kcal, plus the last 7 days. Renders nothing
+ * until the active device has OURA_MET rows. Labelled as an estimate throughout — the MET decode is
+ * third-party (Tier B), the ring's logging gaps undercount, and none of it is scored or a step count.
+ */
+@Composable
+private fun OuraActivitySection(vm: AppViewModel, days: List<DailyMetric>, profile: ProfileStore) {
+    var activity by remember(vm.activeStrapId) { mutableStateOf<List<OuraActivityDay>>(emptyList()) }
+    LaunchedEffect(days, vm.activeStrapId) {
+        val zone = ZoneId.systemDefault()
+        val today = LocalDate.now(zone)
+        val firstDay = today.minusDays(OURA_ACTIVITY_DAYS - 1L)
+        // Samples lay BACKWARD from each row's time, so read one record span past tomorrow's midnight.
+        val from = firstDay.atStartOfDay(zone).toEpochSecond()
+        val to = today.plusDays(1).atStartOfDay(zone).toEpochSecond() + OURA_MET_RECORD_SPAN_S
+        val rows = runCatching {
+            vm.repo.eventsByKind(
+                deviceId = vm.activeStrapId,
+                kind = com.noop.data.OuraStreamMapping.EVENT_MET,
+                from = from,
+                to = to,
+                limit = OURA_MET_EVENT_LIMIT,
+            )
+        }.getOrDefault(emptyList())
+        activity = withContext(Dispatchers.Default) {
+            OuraActivityDays.aggregate(rows, zone, profile.weightKg)
+                .filter { it.day >= firstDay.toString() && it.day <= today.toString() }
+        }
+    }
+    if (activity.isEmpty()) return
+    val todayKey = LocalDate.now().toString()
+    val todayEstimate = activity.firstOrNull { it.day == todayKey }?.estimate
+    Column(verticalArrangement = Arrangement.spacedBy(Metrics.gap)) {
+        SectionHeader(uiString(R.string.oura_activity_title), overline = uiString(R.string.oura_activity_overline))
+        NoopCard {
+            Column(verticalArrangement = Arrangement.spacedBy(Metrics.space12)) {
+                Row(horizontalArrangement = Arrangement.spacedBy(Metrics.space12)) {
+                    OuraActivityStat(
+                        modifier = Modifier.weight(1f),
+                        label = uiString(R.string.oura_activity_active_min),
+                        value = todayEstimate?.activeMinutes?.roundToInt()?.toString() ?: "—",
+                        tint = Palette.metricCyan,
+                    )
+                    OuraActivityStat(
+                        modifier = Modifier.weight(1f),
+                        label = uiString(R.string.oura_activity_met_min),
+                        value = todayEstimate?.metMinutes?.roundToInt()?.toString() ?: "—",
+                        tint = Palette.metricPurple,
+                    )
+                    OuraActivityStat(
+                        modifier = Modifier.weight(1f),
+                        label = uiString(R.string.oura_activity_kcal),
+                        value = todayEstimate?.estActiveKcal?.roundToInt()?.toString() ?: "—",
+                        tint = Palette.accent,
+                    )
+                }
+                Text(
+                    if (todayEstimate != null) {
+                        uiString(R.string.oura_activity_coverage, todayEstimate.sampleCount)
+                    } else {
+                        uiString(R.string.oura_activity_none_today)
+                    },
+                    style = NoopType.footnote,
+                    color = Palette.textSecondary,
+                )
+                Overline(uiString(R.string.oura_activity_week))
+                Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    Text(uiString(R.string.l10n_health_screen_date_eb9a4bc1), style = NoopType.footnote, color = Palette.textSecondary, modifier = Modifier.weight(1f))
+                    Text(uiString(R.string.oura_activity_active_min), style = NoopType.footnote, color = Palette.textSecondary, textAlign = TextAlign.End, modifier = Modifier.weight(0.8f))
+                    Text(uiString(R.string.oura_activity_kcal), style = NoopType.footnote, color = Palette.textSecondary, textAlign = TextAlign.End, modifier = Modifier.weight(0.8f))
+                }
+                for (entry in activity.sortedByDescending { it.day }) {
+                    Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                        Text(vitalReadingDateLabel(entry.day), style = NoopType.bodyNumber, color = Palette.textPrimary, modifier = Modifier.weight(1f))
+                        Text(entry.estimate.activeMinutes.roundToInt().toString(), style = NoopType.bodyNumber, color = Palette.metricCyan, textAlign = TextAlign.End, modifier = Modifier.weight(0.8f))
+                        Text(entry.estimate.estActiveKcal?.roundToInt()?.toString() ?: "—", style = NoopType.bodyNumber, color = Palette.textPrimary, textAlign = TextAlign.End, modifier = Modifier.weight(0.8f))
+                    }
+                }
+                Text(uiString(R.string.oura_activity_note), style = NoopType.footnote, color = Palette.textTertiary)
+            }
+        }
+    }
+}
+
+@Composable
+private fun OuraActivityStat(modifier: Modifier, label: String, value: String, tint: androidx.compose.ui.graphics.Color) {
+    Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(Metrics.space4)) {
+        Overline(label, color = Palette.textTertiary)
+        Text(value, style = NoopType.metricInline, color = if (value != "—") tint else Palette.textTertiary)
+    }
+}
+
+private const val OURA_ACTIVITY_DAYS = 7
+private const val OURA_MET_RECORD_SPAN_S = 30L * 60L
+private const val OURA_MET_EVENT_LIMIT = 50_000
 
 @Composable
 private fun VitalityHero(
@@ -1896,6 +2011,7 @@ internal fun spo2EmptyState(
 @Composable
 fun VitalDetailScreen(vm: AppViewModel, key: String) {
     val days by vm.recentDays.collectAsStateWithLifecycle()
+    val ouraHistorySyncing by vm.ouraHistorySyncing.collectAsStateWithLifecycle()
     val context = LocalContext.current
     val tempUnit = UnitPrefs.temperature(context)
     // The Effort detail renders per the user's Effort display scale (0-100 vs 0-21), like the Today tile.
@@ -1953,6 +2069,29 @@ fun VitalDetailScreen(vm: AppViewModel, key: String) {
     // button recomputes then bumps this tick, re-running the series read so a fresh value shows at once.
     var refreshTick by remember { mutableStateOf(0) }
     var refreshing by remember { mutableStateOf(false) }
+    // Oura's open 0x5D stream is deliberately a SECONDARY, read-only comparison. It never replaces
+    // DailyMetric.avgHrv and never feeds Charge. Load it only on the HRV detail so no other screen pays
+    // for the event/sleep-session read. Re-run after a daily-metric update, which is the normal end of a
+    // history-sync/analyze pass and therefore the point at which fresh ring buckets become useful here.
+    // Oura's own drain state is also a key because Ring 4 can add HRV rows without creating a DailyMetric.
+    var ouraHrv by remember(key, vm.activeStrapId) { mutableStateOf<List<OuraNativeHrvReading>>(emptyList()) }
+    var noopComputedHrv by remember(key, vm.activeStrapId) {
+        mutableStateOf<List<NoopHrvComparisonReading>>(emptyList())
+    }
+    var ouraHrvLoaded by remember(key, vm.activeStrapId) { mutableStateOf(key != "hrv") }
+    if (key == "hrv") {
+        LaunchedEffect(key, days, vm.activeStrapId, ouraHistorySyncing) {
+            ouraHrvLoaded = false
+            // Oura's source publishes drain completion just before its queued Room inserts necessarily
+            // finish. Give those already-launched writes one scheduling turn, then query the newly stored
+            // buckets/R-R rows. Opening this screen later still loads immediately after this small delay.
+            if (!ouraHistorySyncing) delay(300)
+            val sources = loadOuraHrvSources(vm, days)
+            ouraHrv = sources.oura
+            noopComputedHrv = sources.noop
+            ouraHrvLoaded = true
+        }
+    }
     if (isSeriesBacked) {
         LaunchedEffect(key, refreshTick) {
             seriesDetail = buildSeriesVitalDetail(vm, key)
@@ -1998,7 +2137,26 @@ fun VitalDetailScreen(vm: AppViewModel, key: String) {
             )
             return@ScreenScaffold
         }
+        if (key == "hrv" && !ouraHrvLoaded) {
+            DataPendingNote(
+                title = uiString(R.string.l10n_health_screen_loading_33ce4174),
+                body = uiString(R.string.oura_hrv_loading),
+            )
+            return@ScreenScaffold
+        }
         if (detail == null || detail.points.isEmpty()) {
+            // Oura may have native five-minute RMSSD buckets before NOOP has enough computed nights for a
+            // trend. Keep that real evidence visible rather than hiding it behind the generic two-reading
+            // empty state. A single NOOP value is shown beside the native value when their wake-days match.
+            if (key == "hrv" && ouraHrv.isNotEmpty()) {
+                HrvSourcesCard(noopComputedHrv, ouraHrv)
+                HrvComparisonTable(noopComputedHrv, ouraHrv)
+                DataPendingNote(
+                    title = uiString(R.string.oura_hrv_calibrating),
+                    body = uiString(R.string.oura_hrv_rest_available),
+                )
+                return@ScreenScaffold
+            }
             if (isStepsDetail) {
                 DataPendingNote(title = uiString(R.string.steps_empty_title), body = uiString(R.string.steps_empty_body))
                 return@ScreenScaffold
@@ -2091,6 +2249,20 @@ fun VitalDetailScreen(vm: AppViewModel, key: String) {
         }
         val filteredPoints = stepsSeries?.points ?: filteredReadings.map { it.day to it.value }
         if (filteredPoints.isEmpty() || (!isStepsDetail && filteredPoints.size < 2)) {
+            if (key == "hrv" && ouraHrv.isNotEmpty()) {
+                val anchorDay = filteredReadings.lastOrNull()?.day
+                val firstDay = anchorDay?.let { day ->
+                    effectiveRange.days?.let { LocalDate.parse(day).minusDays(it - 1).toString() }
+                }
+                val filteredOura = if (firstDay == null) ouraHrv else {
+                    ouraHrv.filter { it.day >= firstDay && it.day <= anchorDay }
+                }
+                val filteredNoop = if (firstDay == null) noopComputedHrv else {
+                    noopComputedHrv.filter { it.day >= firstDay && it.day <= anchorDay }
+                }
+                HrvSourcesCard(filteredNoop, filteredOura)
+                HrvComparisonTable(filteredNoop, filteredOura)
+            }
             DataPendingNote(
                 title = uiString(R.string.l10n_health_screen_not_enough_history_in_this_range_2da72f80),
                 body = if (isStepsDetail) uiString(R.string.steps_empty_range) else "Try a longer interval like 3M, 6M, 1Y, or ALL to see this vital’s trend.",
@@ -2110,6 +2282,14 @@ fun VitalDetailScreen(vm: AppViewModel, key: String) {
         val min = values.minOrNull()
         val max = values.maxOrNull()
         val avg = values.average()
+
+        if (key == "hrv" && ouraHrv.isNotEmpty()) {
+            val firstDay = filteredReadings.first().day
+            val lastDay = filteredReadings.last().day
+            val filteredOura = ouraHrv.filter { it.day >= firstDay && it.day <= lastDay }
+            val filteredNoop = noopComputedHrv.filter { it.day >= firstDay && it.day <= lastDay }
+            if (filteredOura.isNotEmpty()) HrvSourcesCard(filteredNoop, filteredOura)
+        }
 
         if (!isStepsDetail) SectionHeader(
             detail.title,
@@ -2307,6 +2487,250 @@ fun VitalDetailScreen(vm: AppViewModel, key: String) {
             vitalReadingRows(filteredReadings, detail.unit, strapId, detail.format)
         }
         VitalReadingsTable(rows = readingRows)
+        if (key == "hrv" && ouraHrv.isNotEmpty()) {
+            val firstDay = filteredReadings.first().day
+            val lastDay = filteredReadings.last().day
+            val filteredOura = ouraHrv.filter { it.day >= firstDay && it.day <= lastDay }
+            val filteredNoop = noopComputedHrv.filter { it.day >= firstDay && it.day <= lastDay }
+            HrvComparisonTable(filteredNoop, filteredOura)
+        }
+    }
+}
+
+/** Read Oura's native RMSSD event stream. A detected session owns its buckets normally; a Ring 4 history
+ *  with no sessions uses the adapter's noon-to-noon resting-window grouping. The query is kind-specific so
+ *  a long motion/sleep-event history cannot consume the generic event limit before newer HRV rows arrive. */
+private data class OuraHrvSources(
+    val noop: List<NoopHrvComparisonReading>,
+    val oura: List<OuraNativeHrvReading>,
+)
+
+private suspend fun loadOuraHrvSources(
+    vm: AppViewModel,
+    days: List<DailyMetric>,
+): OuraHrvSources {
+    val zone = ZoneId.systemDefault()
+    val parsedDays = days.mapNotNull { runCatching { LocalDate.parse(it.day) }.getOrNull() }
+    // An Oura-only install can have real 0x5D/R-R history before it has any computed DailyMetric at all.
+    // Query a bounded recent window in that cold-start case instead of making HRV visibility depend on the
+    // very sleep session Ring 4 did not expose.
+    val today = LocalDate.now(zone)
+    val oldestDate = parsedDays.minOrNull() ?: today.minusDays(30)
+    val newestDate = parsedDays.maxOrNull() ?: today
+    // A wake-day's night usually begins on the prior calendar day. Pad both ends so the oldest requested
+    // night and a late wake/nap are fully covered.
+    val from = oldestDate.minusDays(1).atStartOfDay(zone).toEpochSecond()
+    val to = newestDate.plusDays(2).atStartOfDay(zone).toEpochSecond()
+    val sourceId = vm.activeStrapId
+    val computedId = vm.repo.computedDeviceId(sourceId)
+    val oldestDay = oldestDate.toString()
+    val newestDay = newestDate.toString()
+    // Read the computed namespace directly for the comparison label. The existing HRV chart keeps its
+    // normal merged/import-aware semantics; the side-by-side card must specifically mean NOOP's own value.
+    val canonicalNoop = runCatching { vm.repo.days(computedId) }
+        .getOrDefault(emptyList())
+        .asSequence()
+        .filter { it.day >= oldestDay && it.day <= newestDay }
+        .mapNotNull { row ->
+            row.avgHrv?.let {
+                NoopHrvComparisonReading(day = row.day, value = it, fromRestingWindow = false)
+            }
+        }
+        .toList()
+    val events = runCatching {
+        vm.repo.eventsByKind(
+            deviceId = sourceId,
+            kind = com.noop.data.OuraStreamMapping.EVENT_HRV,
+            from = from,
+            to = to,
+            limit = OURA_NATIVE_HRV_EVENT_LIMIT,
+        )
+    }.getOrDefault(emptyList())
+    if (events.isEmpty()) return OuraHrvSources(canonicalNoop, emptyList())
+    val sleeps = runCatching {
+        vm.repo.sleepSessionsForDevice(computedId, from, to, OURA_NATIVE_HRV_SLEEP_LIMIT)
+    }.getOrDefault(emptyList())
+    val oura = withContext(Dispatchers.Default) { OuraNativeHrv.aggregate(events, sleeps, zone) }
+    if (oura.isEmpty()) return OuraHrvSources(canonicalNoop, emptyList())
+
+    // Ring 4's automatic-resting mode supplied real IBI + native RMSSD but no sleep phases in the field
+    // capture. Fill only comparison-card gaps from the SAME resting interval; do not persist these values
+    // as a DailyMetric, do not call it detected sleep, and do not let it affect Charge.
+    val comparisons = OuraNativeHrv.loadComparisons(oura, canonicalNoop) { rrFrom, rrTo, limit ->
+        vm.repo.rrIntervalsForDevice(sourceId, rrFrom, rrTo, limit)
+    }
+    return OuraHrvSources(
+        noop = comparisons,
+        oura = oura,
+    )
+}
+
+private const val OURA_NATIVE_HRV_EVENT_LIMIT = 250_000
+private const val OURA_NATIVE_HRV_SLEEP_LIMIT = 5_000
+
+/** Side-by-side values for the newest wake-day both sources share. If no day overlaps yet, each column
+ *  shows its own latest day and labels it explicitly, so unlike-looking dates are never presented as a
+ *  same-night comparison. */
+@Composable
+private fun HrvSourcesCard(
+    noopReadings: List<NoopHrvComparisonReading>,
+    ouraReadings: List<OuraNativeHrvReading>,
+) {
+    if (ouraReadings.isEmpty()) return
+    val ouraByDay = ouraReadings.associateBy { it.day }
+    val sharedDay = noopReadings.asReversed().firstNotNullOfOrNull { reading ->
+        reading.day.takeIf { it in ouraByDay }
+    }
+    val noop = sharedDay?.let { day -> noopReadings.lastOrNull { it.day == day } }
+        ?: noopReadings.lastOrNull()
+    val oura = sharedDay?.let(ouraByDay::get) ?: ouraReadings.last()
+    val sameNight = noop != null && noop.day == oura.day
+
+    NoopCard {
+        Column(verticalArrangement = Arrangement.spacedBy(Metrics.space12)) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Overline(uiString(R.string.oura_hrv_sources), modifier = Modifier.weight(1f))
+                Text(
+                    if (sameNight) vitalReadingDateLabel(oura.day) else uiString(R.string.oura_hrv_latest),
+                    style = NoopType.caption,
+                    color = Palette.textTertiary,
+                )
+            }
+            Row(horizontalArrangement = Arrangement.spacedBy(Metrics.space12)) {
+                HrvSourceValue(
+                    modifier = Modifier.weight(1f),
+                    label = uiString(R.string.oura_hrv_computed),
+                    value = noop?.value,
+                    day = noop?.day,
+                    tint = Palette.metricPurple,
+                )
+                HrvSourceValue(
+                    modifier = Modifier.weight(1f),
+                    label = uiString(R.string.l10n_add_device_wizard_oura_ring_e3431536),
+                    value = oura.valueMs,
+                    day = oura.day,
+                    tint = Palette.metricCyan,
+                )
+            }
+            Text(
+                if (noop?.fromRestingWindow == true) {
+                    uiString(R.string.oura_hrv_resting_detail, oura.bucketCount)
+                } else {
+                    uiString(R.string.oura_hrv_nightly_detail, oura.bucketCount)
+                },
+                style = NoopType.footnote,
+                color = Palette.textSecondary,
+            )
+        }
+    }
+}
+
+@Composable
+private fun HrvSourceValue(
+    modifier: Modifier,
+    label: String,
+    value: Double?,
+    day: String?,
+    tint: Color,
+) {
+    Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(Metrics.space4)) {
+        Overline(label, color = Palette.textTertiary)
+        Text(
+            value?.let { uiString(R.string.today_driver_value_ms, it.roundToInt()) } ?: "—",
+            style = NoopType.metricInline,
+            color = if (value != null) tint else Palette.textTertiary,
+        )
+        Text(
+            day?.let(::vitalReadingDateLabel) ?: uiString(R.string.oura_hrv_no_night),
+            style = NoopType.caption,
+            color = Palette.textTertiary,
+        )
+    }
+}
+
+/** Wake-day history for BOTH sides of the comparison. Keeping NOOP out of this table made an older ring
+ *  row look as if its matching interval-derived value had never been calculated; a dash now means the R-R
+ *  window genuinely lacked enough clean beats. Oura bucket counts remain explicit provenance. */
+@Composable
+private fun HrvComparisonTable(
+    noopReadings: List<NoopHrvComparisonReading>,
+    ouraReadings: List<OuraNativeHrvReading>,
+) {
+    if (ouraReadings.isEmpty()) return
+    val noopByDay = noopReadings.associateBy { it.day }
+    NoopCard {
+        Column(verticalArrangement = Arrangement.spacedBy(Metrics.space10)) {
+            Overline(uiString(R.string.oura_hrv_history))
+            Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                Text(uiString(R.string.l10n_health_screen_date_eb9a4bc1), style = NoopType.footnote, color = Palette.textSecondary, modifier = Modifier.weight(1f))
+                Text(
+                    "NOOP",
+                    style = NoopType.footnote,
+                    color = Palette.textSecondary,
+                    textAlign = TextAlign.End,
+                    modifier = Modifier.weight(0.8f),
+                )
+                Text(
+                    uiString(R.string.today_source_oura),
+                    style = NoopType.footnote,
+                    color = Palette.textSecondary,
+                    textAlign = TextAlign.End,
+                    modifier = Modifier.weight(0.8f),
+                )
+                Text(
+                    uiString(R.string.oura_hrv_samples),
+                    style = NoopType.footnote,
+                    color = Palette.textSecondary,
+                    textAlign = TextAlign.End,
+                    modifier = Modifier.weight(0.8f),
+                )
+            }
+            ouraReadings.asReversed().forEachIndexed { index, reading ->
+                val noop = noopByDay[reading.day]
+                Row(modifier = Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        vitalReadingDateLabel(reading.day),
+                        style = NoopType.subhead,
+                        color = Palette.textSecondary,
+                        modifier = Modifier.weight(1f),
+                    )
+                    Text(
+                        noop?.let { uiString(R.string.today_driver_value_ms, it.value.roundToInt()) } ?: "—",
+                        style = NoopType.bodyNumber,
+                        color = if (noop != null) Palette.metricPurple else Palette.textTertiary,
+                        textAlign = TextAlign.End,
+                        modifier = Modifier.weight(0.8f),
+                    )
+                    Text(
+                        uiString(R.string.today_driver_value_ms, reading.valueMs.roundToInt()),
+                        style = NoopType.bodyNumber,
+                        color = Palette.metricCyan,
+                        textAlign = TextAlign.End,
+                        modifier = Modifier.weight(0.8f),
+                    )
+                    Text(
+                        reading.bucketCount.toString(),
+                        style = NoopType.footnote,
+                        color = Palette.textTertiary,
+                        textAlign = TextAlign.End,
+                        modifier = Modifier.weight(0.8f),
+                    )
+                }
+                if (index < ouraReadings.lastIndex) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(Metrics.divider)
+                            .background(Palette.hairline),
+                    )
+                }
+            }
+            Text(
+                uiString(R.string.oura_hrv_table_note),
+                style = NoopType.footnote,
+                color = Palette.textTertiary,
+            )
+        }
     }
 }
 

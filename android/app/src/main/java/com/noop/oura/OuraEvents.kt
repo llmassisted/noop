@@ -328,6 +328,14 @@ data class OuraFeatureStatus(
     val subscription: Int,
 )
 
+/**
+ * The ring's `2f 03 23 <id> <status>` reply to a feature-mode write (OURA_PROTOCOL.md s7.5): the feature id
+ * and the ring's own verdict — 0 accepted, 1 NOT_SUPPORTED, 2 NOT_AVAILABLE per [open_oura-feat]. That
+ * verdict is what separates "the ring refused" from "accepted but a no-op", which a follow-up status read
+ * cannot. Diagnostic only; never scored, never stored.
+ */
+data class OuraFeatureModeReply(val feature: Int, val status: Int)
+
 /** A UTC anchor / time-sync event (OURA_PROTOCOL.md s6.11): epoch ms + timezone offset seconds. */
 data class OuraTimeSync(val ringTimestamp: Long, val epochMs: Long, val tzOffsetSeconds: Int)
 

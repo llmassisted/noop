@@ -4,7 +4,6 @@ import com.noop.R
 import androidx.compose.ui.res.stringResource
 import android.app.TimePickerDialog
 import android.widget.Toast
-import com.noop.analytics.SleepMark
 import com.noop.analytics.SleepMarkType
 import com.noop.analytics.SleepWindowReclip
 import androidx.compose.foundation.Canvas
@@ -713,15 +712,10 @@ fun SleepScreen(
                     Spacer(Modifier.height(Metrics.selectorTopUp))
                     SleepMarkCard(
                 onMark = { type ->
-                    val mark = SleepMark.now(type)
-                    // The shareable strap log is the human-readable surface in a debug export.
-                    vm.ble.externalLog(mark.logLine())
                     scope.launch {
-                        runCatching {
-                            vm.repo.upsertMetricSeries(listOf(mark.metricPoint("my-whoop")))
-                        }
+                        val message = vm.recordSleepMark(type)
+                        Toast.makeText(context, message, Toast.LENGTH_SHORT).show()
                     }
-                    Toast.makeText(context, mark.confirmation(), Toast.LENGTH_SHORT).show()
                 },
             )
                     }

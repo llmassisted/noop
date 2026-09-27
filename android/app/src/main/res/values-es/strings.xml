@@ -2820,4 +2820,42 @@
     <string name="data_sources_whoop_live_subtitle">Se empareja directamente con tu pulsera por Bluetooth: sin app de WHOOP, sin nube. La pulsera también puede anunciar su frecuencia cardíaca como un sensor Bluetooth estándar.</string>
     <string name="data_sources_band_broadcast_description">Difunde por Bluetooth la frecuencia cardíaca en vivo de la propia pulsera para Garmin, Zwift o equipos de gimnasio.</string>
     <string name="whoop4_direct_broadcast_explainer">Tu WHOOP 4.0 puede transmitir la frecuencia cardíaca directamente. Abre Fuentes de datos y usa «Transmitir frecuencia cardíaca desde la pulsera» para Zwift, Peloton, Garmin o equipos de gimnasio. También puedes usar «Transmitir FC desde este teléfono» cuando sea necesario.</string>
+
+    <!-- Oura native and NOOP HRV comparison -->
+    <string name="oura_hrv_latest">Últimos datos disponibles</string>
+    <string name="oura_hrv_computed">Calculado por NOOP</string>
+    <string name="oura_hrv_no_night">Ninguna noche calculada</string>
+    <string name="oura_hrv_samples">Muestras</string>
+    <string name="oura_hrv_sources">Fuentes de VFC</string>
+    <string name="oura_hrv_history">Historial de VFC</string>
+    <string name="oura_hrv_calibrating">La VFC de NOOP aún se está calibrando</string>
+    <string name="oura_hrv_loading">Cargando el historial de VFC de Oura.</string>
+    <string name="oura_hrv_rest_available">La comparación del periodo de reposo aparece arriba. La tendencia nocturna requiere sueño detectado.</string>
+    <string name="oura_hrv_pairing">Finalizando el emparejamiento</string>
+    <string name="oura_hrv_resting_detail">NOOP calcula la VFC del mismo periodo de reposo. No afecta a Charge hasta que se detecta sueño. Oura promedia %1$d mediciones de cinco minutos.</string>
+    <string name="oura_hrv_nightly_detail">NOOP calcula la VFC para Charge a partir de los intervalos entre latidos almacenados. Oura promedia %1$d mediciones de cinco minutos.</string>
+    <string name="oura_hrv_table_note">Cada muestra de Oura abarca cinco minutos de reposo. NOOP usa los intervalos entre latidos correspondientes. — indica datos válidos insuficientes.</string>
+
+    <!-- Oura SpO2 feature-mode experiment (Test Centre) -->
+    <string name="oura_spo2_mode_title">Medición de SpO2 de Oura (experimental)</string>
+    <string name="oura_spo2_mode_desc">Pide al anillo que registre el oxígeno en sangre por la noche. Sin verificar en anillos donde Oura nunca activó SpO2. Desactivar lo revierte. La respuesta del anillo aparece en el registro de la banda.</string>
+    <string name="oura_spo2_mode_enable">Activar SpO2 en el anillo</string>
+    <string name="oura_spo2_mode_disable">Desactivar SpO2 en el anillo</string>
+    <string name="oura_spo2_mode_confirm_enable">¿Activar SpO2 en el anillo?</string>
+    <string name="oura_spo2_mode_confirm_disable">¿Desactivar SpO2 en el anillo?</string>
+    <string name="oura_spo2_mode_confirm_body">Esto envía un cambio de ajuste al anillo. El otro botón lo revierte.</string>
+    <string name="oura_spo2_mode_send">Enviar</string>
+    <string name="oura_spo2_mode_sent">Enviado. Consulta el registro de la banda para ver la respuesta del anillo.</string>
+    <string name="oura_spo2_mode_not_connected">Anillo no conectado. Espera a que se conecte e inténtalo de nuevo.</string>
+
+    <!-- Oura activity estimate (Health card) -->
+    <string name="oura_activity_title">Actividad</string>
+    <string name="oura_activity_overline">Estimación de Oura</string>
+    <string name="oura_activity_active_min">Min activos</string>
+    <string name="oura_activity_met_min">min MET</string>
+    <string name="oura_activity_kcal">kcal activas</string>
+    <string name="oura_activity_coverage">Hoy, a partir de %1$d min de datos del anillo.</string>
+    <string name="oura_activity_none_today">Aún no hay datos de actividad del anillo hoy.</string>
+    <string name="oura_activity_week">Últimos 7 días</string>
+    <string name="oura_activity_note">Estimado a partir de la intensidad de movimiento del anillo (MET). Los minutos con 3+ MET cuentan como activos; los minutos que el anillo no registró cuentan como inactivos. No es un recuento de pasos ni se usa en las puntuaciones.</string>
 </resources>

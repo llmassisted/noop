@@ -80,6 +80,350 @@
       "identity_sha256": "ecbc737217fc7e501b46226d4560ed9f23d2bd636faeef2f5e59e0a7274821e1",
       "platform": "swift",
       "rationale": "Twin of the Kotlin `val OuraSpO2.channel` in android/app/src/main/java/com/noop/oura/OuraEvents.kt. Both are one-line extension properties over OuraSpO2 returning OuraSpO2Channel, added together in the same change. Kotlin declares its copy as a TOP-LEVEL extension property with a dotted receiver, which the ledger's Kotlin property scan does not index, so the Swift side reads as one-sided. The pair is real; only one half is visible to the inventory."
+    },
+    {
+      "type": "platform_specific",
+      "kind": "add-unpaired-file",
+      "identity": "kotlin\u0000android/app/src/main/java/com/noop/analytics/OuraRestingWindows.kt",
+      "identity_sha256": "80fce4df6bb0e7f03d74627806319c90395caf11b8c88eb6613954ece7e036ec",
+      "platform": "kotlin",
+      "rationale": "Restores the previously shipped Android Ring 4 adapter from durable Room OURA_HRV events to explicit sleep-window hints. This is an Android fork recovery path after PR #1 omitted its integration, not a new shared scoring formula. Apple does not consume this Android persistence adapter; the shared stage and HRV computations remain unchanged."
+    },
+    {
+      "type": "platform_specific",
+      "kind": "add-unpaired-constant",
+      "identity": "kotlin\u0000android/app/src/main/java/com/noop/analytics/OuraRestingWindows.kt::BUCKET_SECONDS",
+      "identity_sha256": "6492d32deb585c76bdf04b37318a597246417aabd425f6135bbf5ec19db9ecb5",
+      "platform": "kotlin",
+      "rationale": "Restores the previously shipped Android Ring 4 adapter from durable Room OURA_HRV events to explicit sleep-window hints. This is an Android fork recovery path after PR #1 omitted its integration, not a new shared scoring formula. Apple does not consume this Android persistence adapter; the shared stage and HRV computations remain unchanged."
+    },
+    {
+      "type": "platform_specific",
+      "kind": "add-unpaired-constant",
+      "identity": "kotlin\u0000android/app/src/main/java/com/noop/analytics/OuraRestingWindows.kt::MAX_GAP_SECONDS",
+      "identity_sha256": "196ccdc15b8f66a20ebb4c3064011601678e9c2e714d20158ed563655a2cdf1f",
+      "platform": "kotlin",
+      "rationale": "Restores the previously shipped Android Ring 4 adapter from durable Room OURA_HRV events to explicit sleep-window hints. This is an Android fork recovery path after PR #1 omitted its integration, not a new shared scoring formula. Apple does not consume this Android persistence adapter; the shared stage and HRV computations remain unchanged."
+    },
+    {
+      "type": "platform_specific",
+      "kind": "add-unpaired-constant",
+      "identity": "kotlin\u0000android/app/src/main/java/com/noop/analytics/OuraRestingWindows.kt::MIN_AUTOMATIC_SLEEP_SECONDS",
+      "identity_sha256": "da5893ae53af16d21b7241e51235860fd2297d60247cfa155a26a9c4d8ee8e25",
+      "platform": "kotlin",
+      "rationale": "Restores the previously shipped Android Ring 4 adapter from durable Room OURA_HRV events to explicit sleep-window hints. This is an Android fork recovery path after PR #1 omitted its integration, not a new shared scoring formula. Apple does not consume this Android persistence adapter; the shared stage and HRV computations remain unchanged."
+    },
+    {
+      "type": "platform_specific",
+      "kind": "add-unpaired-function",
+      "identity": "kotlin\u0000android/app/src/main/java/com/noop/analytics/OuraRestingWindows.kt::windows/1#1",
+      "identity_sha256": "aee030bf076669b51ac3c9125e2777013e7888aefdb12ad54f08b641604d66bf",
+      "platform": "kotlin",
+      "rationale": "Restores the previously shipped Android Ring 4 adapter from durable Room OURA_HRV events to explicit sleep-window hints. This is an Android fork recovery path after PR #1 omitted its integration, not a new shared scoring formula. Apple does not consume this Android persistence adapter; the shared stage and HRV computations remain unchanged."
+    },
+    {
+      "type": "platform_specific",
+      "kind": "add-unpaired-function",
+      "identity": "kotlin\u0000android/app/src/main/java/com/noop/analytics/OuraRestingWindows.kt::isSleepCandidate/1#1",
+      "identity_sha256": "875eeee4ac9567dceacbf4a8ea04af2d4073833a50f8964115740c0843c2de3b",
+      "platform": "kotlin",
+      "rationale": "Restores the previously shipped Android Ring 4 adapter from durable Room OURA_HRV events to explicit sleep-window hints. This is an Android fork recovery path after PR #1 omitted its integration, not a new shared scoring formula. Apple does not consume this Android persistence adapter; the shared stage and HRV computations remain unchanged."
+    },
+    {
+      "type": "platform_specific",
+      "kind": "add-unpaired-property",
+      "identity": "kotlin\u0000android/app/src/main/java/com/noop/analytics/OuraRestingWindows.kt::durationSeconds@property#1",
+      "identity_sha256": "9f63d3ef831549c78c49bd09b664e12ea33a3e68564ece5d4253e76427d91394",
+      "platform": "kotlin",
+      "rationale": "Restores the previously shipped Android Ring 4 adapter from durable Room OURA_HRV events to explicit sleep-window hints. This is an Android fork recovery path after PR #1 omitted its integration, not a new shared scoring formula. Apple does not consume this Android persistence adapter; the shared stage and HRV computations remain unchanged."
+    },
+    {
+      "type": "platform_specific",
+      "kind": "add-unpaired-function",
+      "identity": "kotlin\u0000android/app/src/main/java/com/noop/analytics/IntelligenceEngine.kt::sleepWindowHint/1#1",
+      "identity_sha256": "6aeb51bdc57f027ab91c04fa4daa71141c701968e1ad5ec98ed5355b30a22145",
+      "platform": "kotlin",
+      "rationale": "Restores the previously shipped Android Ring 4 adapter from durable Room OURA_HRV events to explicit sleep-window hints. This is an Android fork recovery path after PR #1 omitted its integration, not a new shared scoring formula. Apple does not consume this Android persistence adapter; the shared stage and HRV computations remain unchanged."
+    },
+    {
+      "type": "platform_specific",
+      "kind": "add-unpaired-function",
+      "identity": "kotlin\u0000android/app/src/main/java/com/noop/analytics/IntelligenceEngine.kt::detectorIndependentSleepForDay/7#1",
+      "identity_sha256": "e248be8c76fd11321f7150b66b159ea27aaedb274f96f1cf8e7a0a39129be5c7",
+      "platform": "kotlin",
+      "rationale": "Restores the previously shipped Android Ring 4 adapter from durable Room OURA_HRV events to explicit sleep-window hints. This is an Android fork recovery path after PR #1 omitted its integration, not a new shared scoring formula. Apple does not consume this Android persistence adapter; the shared stage and HRV computations remain unchanged."
+    },
+    {
+      "type": "platform_specific",
+      "kind": "add-unpaired-function",
+      "identity": "kotlin\u0000android/app/src/main/java/com/noop/analytics/IntelligenceEngine.kt::resolveSleepEvidence/12#1",
+      "identity_sha256": "ed42f64dd06d13e6343abc7aeb86b83d776ba55666edcd9db48acdebb414d762",
+      "platform": "kotlin",
+      "rationale": "Restores the previously shipped Android Ring 4 adapter from durable Room OURA_HRV events to explicit sleep-window hints. This is an Android fork recovery path after PR #1 omitted its integration, not a new shared scoring formula. Apple does not consume this Android persistence adapter; the shared stage and HRV computations remain unchanged."
+    },
+    {
+      "type": "platform_specific",
+      "kind": "add-unpaired-function",
+      "identity": "kotlin\u0000android/app/src/main/java/com/noop/analytics/IntelligenceEngine.kt::belongsToThisWakeDay/1#1",
+      "identity_sha256": "f72c61064137a57fa6155072dcb5f6f84259d8e4b1780cb9d77639406644659d",
+      "platform": "kotlin",
+      "rationale": "Restores the previously shipped Android Ring 4 adapter from durable Room OURA_HRV events to explicit sleep-window hints. This is an Android fork recovery path after PR #1 omitted its integration, not a new shared scoring formula. Apple does not consume this Android persistence adapter; the shared stage and HRV computations remain unchanged."
+    },
+    {
+      "type": "platform_specific",
+      "kind": "add-unpaired-function",
+      "identity": "kotlin\u0000android/app/src/main/java/com/noop/analytics/IntelligenceEngine.kt::addIfDisjoint/1#1",
+      "identity_sha256": "eeda61e4e8d466a62605782a6220db70a61e5dbde0c7ce0686a62c6d9aea9bc6",
+      "platform": "kotlin",
+      "rationale": "Restores the previously shipped Android Ring 4 adapter from durable Room OURA_HRV events to explicit sleep-window hints. This is an Android fork recovery path after PR #1 omitted its integration, not a new shared scoring formula. Apple does not consume this Android persistence adapter; the shared stage and HRV computations remain unchanged."
+    },
+    {
+      "type": "platform_specific",
+      "kind": "add-unpaired-function",
+      "identity": "kotlin\u0000android/app/src/main/java/com/noop/analytics/AnalyticsEngine.kt::analyzeDay/34#1",
+      "identity_sha256": "b282e974d09eb5a7cda4f3b9bc682ac4bd9cb0f3ac2b603c8edd4dd1ca7f199f",
+      "platform": "kotlin",
+      "rationale": "Android fork overload restores the optional sleepWindowHints input used by the Ring 4 Room/native-resting and manual-sleep integration. An empty hint list preserves the common detector path. The extra input is Android-specific; it does not replace the shared scoring algorithms or claim an Apple implementation."
+    },
+    {
+      "type": "platform_specific",
+      "kind": "add-unpaired-function",
+      "identity": "kotlin\u0000android/app/src/main/java/com/noop/analytics/SleepStageHealer.kt::restageFromRaw/7#1",
+      "identity_sha256": "b0a2f726614c8b740fd979119971bdc268c9e2c2279b2806af4acd3084262bba",
+      "platform": "kotlin",
+      "rationale": "Android fork manual-sleep repair adds the default-false allowCardioOnly option for user-supplied Ring 4 bounds, whose source has no continuous gravity stream. Other callers retain the motion-density gate. This restores the Android UI-to-Room editing workflow; no corresponding Apple edit flow is changed."
+    },
+    {
+      "type": "platform_specific",
+      "kind": "add-unpaired-function",
+      "identity": "kotlin\u0000android/app/src/main/java/com/noop/analytics/SleepStageHealer.kt::restageFromSamples/10#1",
+      "identity_sha256": "13a4c89390e4801c569808de9a137908af186a24b47cb0950102bf76558f396e",
+      "platform": "kotlin",
+      "rationale": "Android fork manual-sleep repair adds the default-false allowCardioOnly option for user-supplied Ring 4 bounds, whose source has no continuous gravity stream. Other callers retain the motion-density gate. This restores the Android UI-to-Room editing workflow; no corresponding Apple edit flow is changed."
+    },
+    {
+      "type": "platform_specific",
+      "kind": "add-unpaired-function",
+      "identity": "kotlin\u0000android/app/src/main/java/com/noop/data/WhoopRepository.kt::eventsByKind/5#1",
+      "identity_sha256": "60270df2a02d7abe16662d47a2816a214c3ca521e767aabcc411b4644af80faf",
+      "platform": "kotlin",
+      "rationale": "Android Room suspend-query facade for the restored native-HRV comparison UI. It exposes the existing eventsByKind DAO query without a schema change or a new stored value. Apple persistence uses GRDB and does not share this Room facade."
+    },
+    {
+      "type": "platform_specific",
+      "kind": "add-unpaired-file",
+      "identity": "kotlin\u0000android/app/src/main/java/com/noop/oura/OuraIdentity.kt",
+      "identity_sha256": "f08ffc6928ec050c09e23f86b925256634e208e60659fbcc4f0228184d477fd1",
+      "platform": "kotlin",
+      "rationale": "Android BluetoothDevice addresses rotate for Oura Ring 4, so the restored scanner uses the advertised serial where available and authenticates candidate devices with locally stored keys. These Android advertisement-selection helpers do not apply to CoreBluetooth peripheral UUID identity on Apple."
+    },
+    {
+      "type": "platform_specific",
+      "kind": "add-unpaired-function",
+      "identity": "kotlin\u0000android/app/src/main/java/com/noop/oura/OuraIdentity.kt::advertisedSerial/1#1",
+      "identity_sha256": "d60ed0486c49597ec92252412a360a197fddf3ae1d058f725ba3e4beed45e91f",
+      "platform": "kotlin",
+      "rationale": "Android BluetoothDevice addresses rotate for Oura Ring 4, so the restored scanner uses the advertised serial where available and authenticates candidate devices with locally stored keys. These Android advertisement-selection helpers do not apply to CoreBluetooth peripheral UUID identity on Apple."
+    },
+    {
+      "type": "platform_specific",
+      "kind": "add-unpaired-function",
+      "identity": "kotlin\u0000android/app/src/main/java/com/noop/oura/OuraIdentity.kt::isPlausibleSerial/1#1",
+      "identity_sha256": "a02386ed82c1df960462e50bef5616a0b758263900f2955a49975569233757a4",
+      "platform": "kotlin",
+      "rationale": "Android BluetoothDevice addresses rotate for Oura Ring 4, so the restored scanner uses the advertised serial where available and authenticates candidate devices with locally stored keys. These Android advertisement-selection helpers do not apply to CoreBluetooth peripheral UUID identity on Apple."
+    },
+    {
+      "type": "platform_specific",
+      "kind": "add-unpaired-function",
+      "identity": "kotlin\u0000android/app/src/main/java/com/noop/oura/OuraIdentity.kt::mayMatchExpectedSerial/2#1",
+      "identity_sha256": "14ca6e30ae505c690417b9bef9f022b20c454499ac95732d0cdce87f2e535dc2",
+      "platform": "kotlin",
+      "rationale": "Android BluetoothDevice addresses rotate for Oura Ring 4, so the restored scanner uses the advertised serial where available and authenticates candidate devices with locally stored keys. These Android advertisement-selection helpers do not apply to CoreBluetooth peripheral UUID identity on Apple."
+    },
+    {
+      "type": "platform_specific",
+      "kind": "add-unpaired-constant",
+      "identity": "kotlin\u0000android/app/src/main/java/com/noop/oura/Commands.kt::featureRestingHR",
+      "identity_sha256": "f9e938afb6c3bcfba291bd189b7789b9aa31b67f5892fb0abaaff3dc3462d174",
+      "platform": "kotlin",
+      "rationale": "Restores the previous Android fork session setup for Oura resting-HR automatic mode, state subscription, and readback. These command constructors support Android foreground/live-HR lifecycle and overnight collection recovery; no Apple session setup is modified or represented as equivalent by this repair."
+    },
+    {
+      "type": "platform_specific",
+      "kind": "add-unpaired-function",
+      "identity": "kotlin\u0000android/app/src/main/java/com/noop/oura/Commands.kt::restingHRAutomatic/0#1",
+      "identity_sha256": "3f0c9f30ec509766d766835cfadb1272fe4d6aafd9c48d38281da138c4abf216",
+      "platform": "kotlin",
+      "rationale": "Restores the previous Android fork session setup for Oura resting-HR automatic mode, state subscription, and readback. These command constructors support Android foreground/live-HR lifecycle and overnight collection recovery; no Apple session setup is modified or represented as equivalent by this repair."
+    },
+    {
+      "type": "platform_specific",
+      "kind": "add-unpaired-function",
+      "identity": "kotlin\u0000android/app/src/main/java/com/noop/oura/Commands.kt::restingHRStateSubscribe/0#1",
+      "identity_sha256": "faf643badebb38e6a65bd6ce76c529243fcd4074a3e25fb6474ee5defe68890a",
+      "platform": "kotlin",
+      "rationale": "Restores the previous Android fork session setup for Oura resting-HR automatic mode, state subscription, and readback. These command constructors support Android foreground/live-HR lifecycle and overnight collection recovery; no Apple session setup is modified or represented as equivalent by this repair."
+    },
+    {
+      "type": "platform_specific",
+      "kind": "add-unpaired-function",
+      "identity": "kotlin\u0000android/app/src/main/java/com/noop/oura/Commands.kt::restingHRReadStatus/0#1",
+      "identity_sha256": "c0269f58f2f76216709dc2f39e51be77ce5f622abfbac91be7fbb3a1c2567972",
+      "platform": "kotlin",
+      "rationale": "Restores the previous Android fork session setup for Oura resting-HR automatic mode, state subscription, and readback. These command constructors support Android foreground/live-HR lifecycle and overnight collection recovery; no Apple session setup is modified or represented as equivalent by this repair."
+    },
+    {
+      "type": "platform_specific",
+      "kind": "add-unpaired-constant",
+      "identity": "kotlin\u0000android/app/src/main/java/com/noop/oura/Commands.kt::featureModeAutomatic",
+      "identity_sha256": "95556eb80cc0ad50c22449962b10e905e3f53983e1470bc6239548ac47674805",
+      "platform": "kotlin",
+      "rationale": "Android port of the Swift Test Centre feature-mode experiment (#2105, OURA_PROTOCOL.md s7.5) for this Android-first fork. The Swift twins already exist in Packages/OuraProtocol; the Kotlin builders keep the same bytes and are reachable only from the Android Test Centre behind a confirmation, never automatically."
+    },
+    {
+      "type": "platform_specific",
+      "kind": "add-unpaired-constant",
+      "identity": "kotlin\u0000android/app/src/main/java/com/noop/oura/Commands.kt::featureModeOff",
+      "identity_sha256": "246ef7473b503adb03d5ca991e229a38c1f60272b319e3a1ab21203d83d37763",
+      "platform": "kotlin",
+      "rationale": "Android port of the Swift Test Centre feature-mode experiment (#2105, OURA_PROTOCOL.md s7.5) for this Android-first fork. The Swift twins already exist in Packages/OuraProtocol; the Kotlin builders keep the same bytes and are reachable only from the Android Test Centre behind a confirmation, never automatically."
+    },
+    {
+      "type": "platform_specific",
+      "kind": "add-unpaired-constant",
+      "identity": "kotlin\u0000android/app/src/main/java/com/noop/oura/EventTags.kt::SPO2_R_PI_UNDECODED",
+      "identity_sha256": "a3712c91c37eb0465f18ce767a15017a29039d9de56adbc252a10e3b5ac4db76",
+      "platform": "kotlin",
+      "rationale": "Android-only capture constant for the never-received 0x8b spo2_r_pi tag (OURA_PROTOCOL.md s6.5.1): the history drain logs its first raw payloads as decoder fixtures. No layout is decoded or stored."
+    },
+    {
+      "type": "platform_specific",
+      "kind": "add-unpaired-function",
+      "identity": "kotlin\u0000android/app/src/main/java/com/noop/oura/Commands.kt::featureReadStatus/1#1",
+      "identity_sha256": "ef5617ddd83227e4b97a1c94a9c3bf85922af314fbcfa2a1fbbcfd1baf9a3b29",
+      "platform": "kotlin",
+      "rationale": "Android port of the Swift Test Centre feature-mode experiment (#2105, OURA_PROTOCOL.md s7.5) for this Android-first fork. The Swift twins already exist in Packages/OuraProtocol; the Kotlin builders keep the same bytes and are reachable only from the Android Test Centre behind a confirmation, never automatically."
+    },
+    {
+      "type": "platform_specific",
+      "kind": "add-unpaired-function",
+      "identity": "kotlin\u0000android/app/src/main/java/com/noop/oura/Commands.kt::setFeatureMode/2#1",
+      "identity_sha256": "d2ff8f070a8c5c1558a577a489a6c845cf2503de7cc7745eb511feba62099eea",
+      "platform": "kotlin",
+      "rationale": "Android port of the Swift Test Centre feature-mode experiment (#2105, OURA_PROTOCOL.md s7.5) for this Android-first fork. The Swift twins already exist in Packages/OuraProtocol; the Kotlin builders keep the same bytes and are reachable only from the Android Test Centre behind a confirmation, never automatically."
+    },
+    {
+      "type": "platform_specific",
+      "kind": "add-unpaired-function",
+      "identity": "kotlin\u0000android/app/src/main/java/com/noop/oura/Decoders.kt::decodeFeatureModeReply/1#1",
+      "identity_sha256": "c0190e47d1c92bead02bb9ee79ff344b057dd63c7fff4a63a47afb9d767737b2",
+      "platform": "kotlin",
+      "rationale": "Android-only decode of the ring's 2f 03 23 feature-mode verdict (OURA_PROTOCOL.md s7.5), so a Test Centre write logs accepted / NOT_SUPPORTED / NOT_AVAILABLE instead of being routed as a live-HR ack. Diagnostic only; never scored or stored."
+    },
+    {
+      "type": "platform_specific",
+      "kind": "add-unpaired-constant",
+      "identity": "kotlin\u0000android/app/src/main/java/com/noop/data/OuraMetBackfill.kt::DUMP_PREFIX",
+      "identity_sha256": "0d33b521f08ea26fcaa32bc593819f985d39504a1fbfc4a2f27e91e6abe906eb",
+      "platform": "kotlin",
+      "rationale": "Android-only one-time import of the fork's own on-device 0x50 activity sidecar (oura-activity-*.jsonl, written since #676) into the same OURA_MET rows the live path writes. The sidecar and its history exist only on this Android install."
+    },
+    {
+      "type": "platform_specific",
+      "kind": "add-unpaired-constant",
+      "identity": "kotlin\u0000android/app/src/main/java/com/noop/data/OuraMetBackfill.kt::INSERT_CHUNK",
+      "identity_sha256": "cedf18f01fdd69d11dcebb8f6d29736688934c2e8c859cf46323ff45955a6b48",
+      "platform": "kotlin",
+      "rationale": "Android-only one-time import of the fork's own on-device 0x50 activity sidecar (oura-activity-*.jsonl, written since #676) into the same OURA_MET rows the live path writes. The sidecar and its history exist only on this Android install."
+    },
+    {
+      "type": "platform_specific",
+      "kind": "add-unpaired-constant",
+      "identity": "kotlin\u0000android/app/src/main/java/com/noop/data/OuraStreamMapping.kt::EVENT_MET",
+      "identity_sha256": "3702073d2dab5b2c20b365dcfc773a06952a44b0d9f6ab436a7e417a5006316f",
+      "platform": "kotlin",
+      "rationale": "Android-only durable storage of the ring's 0x50 MET stream as OURA_MET estimate rows for the fork's Health activity card (OURA_PROTOCOL.md s6.13). Tier B: never scored, never a step count. The Swift app still logs 0x50 only; this fork ships Android."
+    },
+    {
+      "type": "platform_specific",
+      "kind": "add-unpaired-constant",
+      "identity": "kotlin\u0000android/app/src/main/java/com/noop/data/OuraStreamMapping.kt::MET_SECONDS_PER_SAMPLE",
+      "identity_sha256": "c703e4bb358a388a6843f197aef452e14ba58b7d83f2d5c3a257c6548e1de979",
+      "platform": "kotlin",
+      "rationale": "Android-only durable storage of the ring's 0x50 MET stream as OURA_MET estimate rows for the fork's Health activity card (OURA_PROTOCOL.md s6.13). Tier B: never scored, never a step count. The Swift app still logs 0x50 only; this fork ships Android."
+    },
+    {
+      "type": "platform_specific",
+      "kind": "add-unpaired-file",
+      "identity": "kotlin\u0000android/app/src/main/java/com/noop/data/OuraMetBackfill.kt",
+      "identity_sha256": "b24d18f0ca1e783afd71df69c23549a7764dd55b41d898788bb2753d22607d88",
+      "platform": "kotlin",
+      "rationale": "Android-only one-time import of the fork's own on-device 0x50 activity sidecar (oura-activity-*.jsonl, written since #676) into the same OURA_MET rows the live path writes. The sidecar and its history exist only on this Android install."
+    },
+    {
+      "type": "platform_specific",
+      "kind": "add-unpaired-file",
+      "identity": "kotlin\u0000android/app/src/main/java/com/noop/oura/ActivityEstimate.kt",
+      "identity_sha256": "cc6b55c5d4f6cb4bd87710c9ffd9f47553a66487736b91d93ae3631ecbab26a2",
+      "platform": "kotlin",
+      "rationale": "Kotlin twin of the Swift OuraActivityEstimator (Packages/OuraProtocol/.../ActivityEstimate.swift). Byte-identical output is pinned by OuraActivityEstimatorTest against the verbatim stdout of the Swift source compiled standalone over 300 generated inputs; the ledger cannot pair it by name because both platforms overload `estimate`."
+    },
+    {
+      "type": "platform_specific",
+      "kind": "add-unpaired-function",
+      "identity": "kotlin\u0000android/app/src/main/java/com/noop/data/OuraMetBackfill.kt::dumpFiles/1#1",
+      "identity_sha256": "94b7d9871f0ea80fc89e789c580a738ff62d3ddaee055de1b0528046ea03922f",
+      "platform": "kotlin",
+      "rationale": "Android-only one-time import of the fork's own on-device 0x50 activity sidecar (oura-activity-*.jsonl, written since #676) into the same OURA_MET rows the live path writes. The sidecar and its history exist only on this Android install."
+    },
+    {
+      "type": "platform_specific",
+      "kind": "add-unpaired-function",
+      "identity": "kotlin\u0000android/app/src/main/java/com/noop/data/OuraMetBackfill.kt::parseLine/1#1",
+      "identity_sha256": "7b3d9524e61591747a961e959d8cab70dacddca4776ad230a59f19ef4d9c74a8",
+      "platform": "kotlin",
+      "rationale": "Android-only one-time import of the fork's own on-device 0x50 activity sidecar (oura-activity-*.jsonl, written since #676) into the same OURA_MET rows the live path writes. The sidecar and its history exist only on this Android install."
+    },
+    {
+      "type": "platform_specific",
+      "kind": "add-unpaired-function",
+      "identity": "kotlin\u0000android/app/src/main/java/com/noop/data/OuraMetBackfill.kt::run/4#1",
+      "identity_sha256": "280ea8b630c60d20ade06884011493b7bda17a7c6b4f05dfc316f49e4929376a",
+      "platform": "kotlin",
+      "rationale": "Android-only one-time import of the fork's own on-device 0x50 activity sidecar (oura-activity-*.jsonl, written since #676) into the same OURA_MET rows the live path writes. The sidecar and its history exist only on this Android install."
+    },
+    {
+      "type": "platform_specific",
+      "kind": "add-unpaired-function",
+      "identity": "kotlin\u0000android/app/src/main/java/com/noop/data/WhoopRepository.kt::insertEventRows/1#1",
+      "identity_sha256": "4560439943fdcc1876d280dda92d98ec465793b0e397cc0782846de4b8b31aca",
+      "platform": "kotlin",
+      "rationale": "Android-only durable storage of the ring's 0x50 MET stream as OURA_MET estimate rows for the fork's Health activity card (OURA_PROTOCOL.md s6.13). Tier B: never scored, never a step count. The Swift app still logs 0x50 only; this fork ships Android."
+    },
+    {
+      "type": "platform_specific",
+      "kind": "add-unpaired-function",
+      "identity": "kotlin\u0000android/app/src/main/java/com/noop/oura/ActivityEstimate.kt::estimate/4#1",
+      "identity_sha256": "556604d859be90f3685dd20286061a71300d78e897c95ac41b2ba2d3c1dd1c6b",
+      "platform": "kotlin",
+      "rationale": "Kotlin twin of the Swift OuraActivityEstimator (Packages/OuraProtocol/.../ActivityEstimate.swift). Byte-identical output is pinned by OuraActivityEstimatorTest against the verbatim stdout of the Swift source compiled standalone over 300 generated inputs; the ledger cannot pair it by name because both platforms overload `estimate`."
+    },
+    {
+      "type": "platform_specific",
+      "kind": "add-unpaired-function",
+      "identity": "kotlin\u0000android/app/src/main/java/com/noop/oura/ActivityEstimate.kt::estimate/4#2",
+      "identity_sha256": "6a034dd744068988a1f985c43d89a163108db3e24aad686a8fef2fa2c488ca61",
+      "platform": "kotlin",
+      "rationale": "Kotlin twin of the Swift OuraActivityEstimator (Packages/OuraProtocol/.../ActivityEstimate.swift). Byte-identical output is pinned by OuraActivityEstimatorTest against the verbatim stdout of the Swift source compiled standalone over 300 generated inputs; the ledger cannot pair it by name because both platforms overload `estimate`."
+    },
+    {
+      "type": "platform_specific",
+      "kind": "add-unpaired-function",
+      "identity": "kotlin\u0000android/app/src/main/java/com/noop/oura/ActivityEstimate.kt::r2/1#1",
+      "identity_sha256": "66bff0ba4ddae17d3628a64dcd7e16e27d5f6b979b0971f36a92d5111b379bb9",
+      "platform": "kotlin",
+      "rationale": "Kotlin twin of the Swift OuraActivityEstimator (Packages/OuraProtocol/.../ActivityEstimate.swift). Byte-identical output is pinned by OuraActivityEstimatorTest against the verbatim stdout of the Swift source compiled standalone over 300 generated inputs; the ledger cannot pair it by name because both platforms overload `estimate`."
     }
   ]
 }

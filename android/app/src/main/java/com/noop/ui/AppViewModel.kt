@@ -53,18 +53,21 @@ import com.noop.protocol.CommandNumber
 import com.noop.widget.WidgetSnapshot
 import com.noop.widget.WidgetSnapshotStore
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flowOn
 import kotlinx.coroutines.flow.flatMapLatest
-import kotlinx.coroutines.flow.distinctUntilChanged
 import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
@@ -113,6 +116,14 @@ internal fun circadianBinsFrom(
     }
     return bins to days.size
 }
+
+/**
+ * Read-side device id for long-lived UI flows. Oura starts life under a rotating address id and adopts its
+ * stable serial after the first authenticated connection; the fallback covers startup/read failures, while
+ * distinct emissions make the address→serial handoff rebind Room collectors exactly once.
+ */
+internal fun activeReadDeviceIds(activeIds: Flow<String?>, fallback: String): Flow<String> =
+    activeIds.map { it ?: fallback }.distinctUntilChanged()
 
 class AppViewModel(app: Application) : AndroidViewModel(app) {
 
@@ -272,12 +283,14 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         }
     }
 
-    /** Archive (remove) a device — keeps its row + samples (invariant I4). H3 (#520): when the removed
+    /** Archive (remove) a device — keeps its row, samples, and reusable credentials (invariant I4). H3 (#520): when the removed
      *  device is a WHOOP, also RELEASE the BLE link so the band can enter pairing mode — archiving the
      *  registry row alone left NOOP re-grabbing it (the 3s reconnect timer + the persisted pin still
      *  pointed at it), so it stayed connected and couldn't show its blue pairing LEDs. iOS already does
      *  this in forgetDevice; this brings Android to parity. A non-WHOOP source (FTMS/HR strap) is owned by
-     *  the SourceCoordinator, not the WHOOP client, so it isn't touched here. */
+     *  the SourceCoordinator, not the WHOOP client, so it isn't touched here. Oura's installed application
+     *  key MUST survive an archive: the ring retains that key too, so deleting NOOP's copy would make the
+     *  UI's promised re-add impossible without another factory reset/takeover. */
     suspend fun archivePairedDevice(id: String) {
         val devices = runCatching { noopApp.deviceRegistry.all() }.getOrDefault(emptyList())
         noopApp.deviceRegistry.archive(id)
@@ -402,6 +415,11 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     val ouraWearState: StateFlow<com.noop.oura.OuraWearState?> =
         noopApp.sourceCoordinator.ouraWearState
 
+    /** Actual active-source state from the coordinator. Unlike [activeStrapId], this cannot go stale when
+     *  Oura adopts its stable serial id while the process is already running. */
+    val ouraActive: StateFlow<Boolean> = noopApp.sourceCoordinator.ouraActive
+    val ouraHistorySyncing: StateFlow<Boolean> = noopApp.sourceCoordinator.ouraHistorySyncing
+
     /** #656: a journal day-offset (daysBack; -1 = Tomorrow) the Today journal widget asks the journal
      *  (Insights) to open at, so tapping a SPECIFIC day's bar lands on THAT day instead of always today.
      *  InsightsScreen consumes it on open and clears it via [requestJournalDay]`(null)`. */
@@ -452,6 +470,19 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         com.noop.ble.OuraInstallKeyStore.save(appContext, deviceId, key)
 
     /**
+     * Promote a key accepted during an older address-keyed takeover to the ring's advertised stable serial.
+     * Returns true when a valid key already existed, allowing the wizard to recover by authentication
+     * instead of issuing another dangerous install.
+     */
+    fun recoverOuraInstallKey(addressDeviceId: String, stableDeviceId: String): Boolean =
+        com.noop.ble.OuraInstallKeyStore.copy(
+            appContext,
+            fromDeviceId = addressDeviceId,
+            toDeviceId = stableDeviceId,
+            overwrite = true,
+        )
+
+    /**
      * Arm (or clear) the one-shot adopt-intent for an Oura ring (keyed by its registry device id). The
      * Add-Oura wizard's DESTRUCTIVE factory-reset-and-adopt path calls this with true AFTER its
      * irreversible-consent gate and second destructive confirm, BEFORE registering the ring active, so the
@@ -473,6 +504,12 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
      *  workout union can follow a re-paired strap's fresh "whoop-<id>" instead of stranding its
      *  recordings under a read pinned to the literal "my-whoop" (#814 twin of the Workouts screen). */
     val deviceId = noopApp.activeDeviceId
+
+    /** Reactive counterpart to [deviceId]. This follows Oura's in-process address→serial adoption and any
+     * later active-device switch, so Health/Today never remain pinned to a namespace the writer left. */
+    private val activeReadDeviceId: StateFlow<String> =
+        activeReadDeviceIds(activeStrapIdFlow, deviceId)
+            .stateIn(viewModelScope, SharingStarted.Eagerly, deviceId)
 
     /** Last (bins, daysObserved) computed on the collector pass. Reused by the cycle-tracking
      *  re-evaluates below so they need no store read of their own — without this, flipping the
@@ -757,14 +794,12 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
      * rows (from [IntelligenceEngine]) gap-fill, so recovery/strain/sleep populate from
      * the strap with no WHOOP import.
      */
-    val recentDays: StateFlow<List<DailyMetric>> =
-        // #797: bound the dashboard merge window. The unbounded daysMergedFlow re-merged the WHOLE daily
-        // history on every DB change; a years-deep import made that a heavy refresh feeding Today / Trends /
-        // illness watch. recentDaysMergedFlow caps each source to RECENT_DAYS_CAP most-recent days first, so
-        // the merge stays bounded while every current surface (deepest Trends range, 7-day Fitness Age /
-        // Vitality windows) keeps its data. Same oldest-first ordering as before.
-        repository.recentDaysMergedFlow(deviceId)
-            .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyList())
+    // #797: bound the dashboard merge window. The unbounded daysMergedFlow re-merged the WHOLE daily
+    // history on every DB change; a years-deep import made that a heavy refresh feeding Today / Trends /
+    // illness watch. The collector in init rebinds this flow when Oura adopts its stable serial, while each
+    // selected source remains capped and oldest-first.
+    private val _recentDays = MutableStateFlow<List<DailyMetric>>(emptyList())
+    val recentDays: StateFlow<List<DailyMetric>> = _recentDays.asStateFlow()
 
     /**
      * Today's measured steps follow the newest confirmed sleep-onset cycle, independently of the fixed
@@ -805,7 +840,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
             else {
                 val from = days.first().day
                 val to = days.last().day
-                repository.metricSeriesComputedUnion(deviceId, "spo2_candidate", from, to)
+                repository.metricSeriesComputedUnion(activeReadDeviceId.value, "spo2_candidate", from, to)
                     .associate { it.day to it.value }
             }
         }.flowOn(Dispatchers.IO)
@@ -820,7 +855,9 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     val hrvOverCountByDay: StateFlow<Map<String, Double>> =
         recentDays.map { days ->
             if (days.isEmpty()) emptyMap()
-            else repository.metricSeriesComputedUnion(deviceId, "hrv_rr_overcount", days.first().day, days.last().day)
+            else repository.metricSeriesComputedUnion(
+                activeReadDeviceId.value, "hrv_rr_overcount", days.first().day, days.last().day,
+            )
                 .associate { it.day to it.value }
         }.flowOn(Dispatchers.IO)
             .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), emptyMap())
@@ -839,6 +876,16 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
      * `trySend` never suspends the main-thread resume callback.
      */
     private val analyzeKick = Channel<Unit>(Channel.CONFLATED)
+    /** Android can keep the current Compose destination mounted while the Activity is backgrounded, so
+     *  [realtimeWanters] alone is not proof that anyone can see live HR. NoopRoot's lifecycle observer
+     *  synchronizes this flag even when the ViewModel is created after the Activity has resumed. */
+    private var appActivityResumed = false
+
+    /** Apply the Activity's current lifecycle state without losing the mounted screens' HR demand. */
+    fun setActivityResumed(resumed: Boolean) {
+        appActivityResumed = resumed
+        noopApp.sourceCoordinator.setOuraLiveHrRequested(resumed && realtimeWanters > 0)
+    }
 
     /**
      * #78 hole-4: the app-foreground hook for the bond-loop salvage probe. Every activity resume runs
@@ -869,14 +916,55 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         // existing WHOOP flow below runs unchanged; it only acts when a non-WHOOP strap is the active
         // device. The Devices screen (next task) calls onActiveDeviceChanged after a setActive.
         noopApp.sourceCoordinator.start()
+        // Rebind the dashboard/Health Room flow when the active id changes in-process. This is especially
+        // important for Oura: the first authenticated connection replaces its rotating address id with the
+        // stable serial and re-keys the rows. A collector pinned to the startup id then sees no computed
+        // daily rows even though decoding/persistence succeeded (the missing skin-temperature symptom).
+        viewModelScope.launch {
+            activeReadDeviceId.collectLatest { id ->
+                _recentDays.value = emptyList()
+                repository.recentDaysMergedFlow(id).collect { _recentDays.value = it }
+            }
+        }
         // #1410: on the first launch after an update, append an APP_VERSION_CHANGED event so a single
         // export can answer "what ran when". Idempotent — the stored last-seen version only advances
         // once the transition is recorded, so a background-only launch is caught on the next UI open.
         viewModelScope.launch { recordAppVersionChange() }
+        // One-time import of the Oura MET history that only ever reached the diagnostic activity sidecar
+        // (OuraMetBackfill). Waits for the ring's STABLE serial id — an address id (contains ':') is
+        // re-keyed away on serial adoption, and the Health card reads the active id — then marks itself done.
+        if (!NoopPrefs.ouraMetBackfillDone(appContext)) {
+            viewModelScope.launch(Dispatchers.IO) {
+                val id = activeReadDeviceId.first { it.startsWith("oura-") && !it.contains(':') }
+                val result = runCatching {
+                    com.noop.data.OuraMetBackfill.run(
+                        filesDir = appContext.filesDir,
+                        deviceId = id,
+                        insert = { repository.insertEventRows(it) },
+                        log = { StrapLogBuffer.append(it) },
+                    )
+                }
+                if (result.isSuccess) NoopPrefs.setOuraMetBackfillDone(appContext)
+            }
+        }
         // #1121: re-arm the opt-in detailed-capture rolling log on launch, so a capture the user started
         // keeps going across the process being killed (this phone class is not battery-exempt and Android
         // kills the background BLE overnight — the very window a battery capture needs to span).
         if (NoopPrefs.detailedCapture(appContext)) ble.setDetailedCapture(true)
+        // An Oura drain previously waited for the unrelated 15-minute analytics backstop, so a completed
+        // morning sync could leave Sleep/HRV blank for another full interval. Wake the existing
+        // fingerprint-gated scorer as soon as the drain ends. The short settle delay lets the coordinator's
+        // asynchronous Room inserts commit first; Channel.CONFLATED safely coalesces overlapping triggers.
+        viewModelScope.launch {
+            var wasSyncing = false
+            ouraHistorySyncing.collect { syncing ->
+                if (wasSyncing && !syncing) {
+                    delay(OURA_HISTORY_PERSIST_SETTLE_MS)
+                    analyzeKick.trySend(Unit)
+                }
+                wasSyncing = syncing
+            }
+        }
         // #78 hole-4: wire the app-foreground salvage probe (see salvageProbeLifecycleCallbacks above).
         noopApp.registerActivityLifecycleCallbacks(salvageProbeLifecycleCallbacks)
         // Resolve the active band's name for the Live screen header (MW-6). Falls back to "WHOOP" in the
@@ -1151,7 +1239,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                 IntelligenceEngine.runEffortRescoreIfNeeded(
                     repo = repository,
                     profile = currentProfile(),
-                    importedDeviceId = deviceId,
+                    importedDeviceId = activeReadDeviceId.value,
                     maxHROverride = profileStore.hrMaxOverride.takeIf { it > 0 }?.toDouble(),
                     flagGet = { NoopPrefs.effortRescoreDone(appContext) },
                     flagSet = { NoopPrefs.setEffortRescoreDone(appContext) },
@@ -1181,7 +1269,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                 // moves the complete raw-input fingerprint, so skip the heavy 21-day rescore when every scoring stream is unchanged
                 // since the last COMPLETED run. Mirrors the Swift analyzeRecent(force:false) gate; the watermark
                 // advances only on success (below), so an interrupted run can never hide unscored data.
-                val analyzeFp = repository.analysisFingerprint()
+                val analyzeFp = "$ANALYTICS_WATERMARK_REVISION:${repository.analysisFingerprint()}"
                 // #1538: attribute the tick that is about to run. An idle-tick pass previously emitted NO
                 // trigger line at all — a "re-score: done" with nothing before it — so a strap log could not
                 // be read by pairing trigger->done, and a stalled background pass was easy to misattribute to
@@ -1191,6 +1279,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                 // attribution. Read the watermark ONCE — the gate and the log line must agree, and a second
                 // read could straddle a concurrent write from a completing pass.
                 val analyzeHasNewData = analyzeFp != NoopPrefs.analyzeWatermark(appContext)
+                val scoringDeviceId = activeReadDeviceId.value
                 if (analyzeHasNewData) ble.externalLog("re-score: trigger=idle newData=yes")
                 if (analyzeHasNewData) runCatching {
                     // #1816: set the motion sink before the pass so the Today tile can name the right
@@ -1201,7 +1290,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                     IntelligenceEngine.analyzeRecent(
                         repo = repository,
                         profile = currentProfile(),
-                        importedDeviceId = deviceId,
+                        importedDeviceId = scoringDeviceId,
                         maxHROverride = profileStore.hrMaxOverride
                             .takeIf { it > 0 }?.toDouble(),
                         // I2 read-through (Phase 1B-4): resolve the single owning device per day from the
@@ -1330,7 +1419,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                 // cycle just upserts. Never let an HC hiccup (perm revoked mid-flight, provider
                 // update) break the analysis loop.
                 if (_hcWriteback.value) {
-                    runCatching { HealthConnectWriter.write(appContext, repository, deviceId) }
+                    runCatching { HealthConnectWriter.write(appContext, repository, scoringDeviceId) }
                     refreshHcWritebackStatus()   // #660: reflect the outcome the writer just persisted
                 }
                 // 15-min backstop cadence, but wake EARLY on an app-resume kick (#386 self-heal) so a
@@ -1914,8 +2003,40 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
      *  Swift SleepView's analyzeRecent() after addManualNap. Swallows persist failures; the Sleep screen
      *  recomputes from the persisted rows on its next reload. */
     suspend fun addManualNap(startTs: Long, endTs: Long) {
-        runCatching { repository.addManualNap(deviceId, startTs, endTs) }
+        runCatching { repository.addManualNap(resolvedActiveDeviceId(), startTs, endTs) }
         rescoreAfterEdit()
+    }
+
+    /**
+     * Persist a sleep boundary and turn a valid bedtime→wake pair into an actual user-owned session.
+     * The exact pending onset lives in SharedPreferences so closing Android between the two taps is safe.
+     * Short pairs are accepted (naps); only accidental sub-5-minute taps and impossible >16-hour spans are
+     * left as diagnostic marks without creating a session.
+     */
+    suspend fun recordSleepMark(type: SleepMarkType): String {
+        val mark = SleepMark.now(type)
+        ble.externalLog(mark.logLine())
+        runCatching { repository.upsertMetricSeries(listOf(mark.metricPoint("my-whoop"))) }
+
+        if (type == SleepMarkType.BEDTIME) {
+            NoopPrefs.setPendingSleepStart(appContext, mark.tsMs / 1_000L)
+            return mark.confirmation()
+        }
+
+        val start = NoopPrefs.pendingSleepStart(appContext)
+        val end = mark.tsMs / 1_000L
+        val duration = end - start
+        if (start <= 0L) return "${mark.confirmation()} No pending bedtime was found."
+        if (duration !in MIN_MARKED_SLEEP_SECONDS..MAX_MARKED_SLEEP_SECONDS) {
+            ble.externalLog("Sleep mark · pair not recorded durationMin=${duration / 60}")
+            return "${mark.confirmation()} Sleep session not added because the marked interval was invalid."
+        }
+
+        val saved = runCatching { repository.addManualNap(resolvedActiveDeviceId(), start, end) }.isSuccess
+        if (!saved) return "${mark.confirmation()} The sleep session could not be saved."
+        NoopPrefs.clearPendingSleepStart(appContext)
+        rescoreAfterEdit()
+        return "Sleep session recorded (${duration / 60} min)."
     }
 
     // --- On-device short-nap detection (PR #569 reimpl under NoopApp). Candidates are detected on the
@@ -1962,10 +2083,11 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
             IntelligenceEngine.stepsHasMotionSink = { hasMotion ->
                 profileStore.stepsHasBankedMotion = hasMotion
             }
+            val scoringDeviceId = resolvedActiveDeviceId()
             IntelligenceEngine.analyzeRecent(
                 repo = repository,
                 profile = currentProfile(),
-                importedDeviceId = deviceId,
+                importedDeviceId = scoringDeviceId,
                 maxHROverride = profileStore.hrMaxOverride
                     .takeIf { it > 0 }?.toDouble(),
                 ownerSource = RegistryDayOwnerSource(noopApp.deviceRegistry),
@@ -2003,6 +2125,14 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         }.onFailure { if (it is kotlin.coroutines.cancellation.CancellationException) throw it }
         IntelligenceEngine.stepsHasMotionSink = null
     }
+
+    /** Registry read-through for actions that can happen after Oura replaces its temporary address id
+     *  with the stable serial during this process. [deviceId] remains the startup fallback for WHOOP and
+     *  for a transient registry read failure. */
+    private suspend fun resolvedActiveDeviceId(): String =
+        runCatching { noopApp.deviceRegistry.activeDeviceId() }.getOrNull() ?: deviceId
+
+    /** Re-read every source + the dismissed markers and republish [workouts]. */
     fun loadWorkouts() {
         viewModelScope.launch {
             val now = System.currentTimeMillis() / 1000
@@ -2289,6 +2419,10 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     // MARK: - Strap controls (thin pass-throughs to the BLE client)
 
     fun connect(promoteService: Boolean = true) {
+        if (ouraActive.value || activeIsOura.value) {
+            reconnectOuraRing()
+            return
+        }
         // An explicit user-driven Connect must start the reconnect schedule fresh — never inherit a
         // backoff delay accumulated by a prior involuntary-reconnect loop (#48, iOS connect() parity).
         ble.resetReconnectBackoff()
@@ -2462,6 +2596,15 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         NoopPrefs.setOuraNotifyMaskFull(appContext, enabled)
     }
 
+    /** Test Centre's confirmation-gated Oura SpO2 feature-mode experiment (OURA_PROTOCOL.md s7.5): writes
+     *  mode automatic (enable) or off (disable) to the connected ring. Never called automatically. False
+     *  when no Oura ring is connected and idle; the ring's verdict lands in the strap log. */
+    fun writeOuraSpO2Mode(enable: Boolean): Boolean =
+        noopApp.sourceCoordinator.writeOuraFeatureMode(
+            com.noop.oura.OuraCommands.featureSpO2,
+            if (enable) com.noop.oura.OuraCommands.featureModeAutomatic else com.noop.oura.OuraCommands.featureModeOff,
+        )
+
     /** #1121: toggle the opt-in rolling "detailed capture" strap-log file. Persisted so it survives a
      *  process kill (re-armed in [init] below). */
     fun setDetailedCapture(enabled: Boolean) {
@@ -2632,6 +2775,7 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     fun requestRealtimeHr() {
         if (realtimeWanters++ == 0) {
             resetSmoothing()
+            noopApp.sourceCoordinator.setOuraLiveHrRequested(appActivityResumed)
             ble.startRealtime()
         }
     }
@@ -2639,7 +2783,10 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
     /** A live-HR screen went away. Stops the realtime stream only when the last one leaves. */
     fun releaseRealtimeHr() {
         realtimeWanters = (realtimeWanters - 1).coerceAtLeast(0)
-        if (realtimeWanters == 0) ble.stopRealtime()
+        if (realtimeWanters == 0) {
+            noopApp.sourceCoordinator.setOuraLiveHrRequested(false)
+            ble.stopRealtime()
+        }
     }
 
     /** Refresh the battery reading. Reads the standard 0x2A19 characteristic (works on 5/MG, where the
@@ -2652,7 +2799,13 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
      * not-already-backfilling guard the auto-kick and 900s periodic timer use — so it's a safe no-op
      * when the strap isn't ready or a session is already running. Progress is unknowable from the
      * protocol, so the UI shows an indeterminate indicator + live.syncChunksThisSession, never a percent. */
-    fun syncNow() = ble.syncNow()
+    fun syncNow() {
+        // Route by the coordinator's ACTUAL running source, not the startup-cached device id. Oura can
+        // adopt a stable serial identity in-process, which previously sent this tap to the WHOOP no-op.
+        if (!noopApp.sourceCoordinator.syncOuraNow()) {
+            ble.syncNow()
+        }
+    }
 
     /** Force an immediate Fitness Age recompute from stored history , the not-ready card's refresh button.
      *  Light (no raw-HR rescoring), so it returns fast and works even when the strap is offline. Applies the
@@ -3082,17 +3235,12 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         ble.buzz(1)
     }
 
-    /** Record a "sleep mark" via the existing [SleepMark] analytics + the shareable strap log, with a
-     *  confirming buzz — the same logging-only path the Sleep screen's mark card uses (#461). A double-tap
-     *  can't pick bedtime vs wake, so it defaults to bedtime ([SleepMark.nowDefault]). */
+    /** Record bedtime via the same durable mark path as the Sleep screen. A double-tap cannot choose a
+     *  boundary, so it starts/replaces the pending bedtime; the user can finish with "I'm awake". */
     private fun markSleep() {
-        val mark = SleepMark.nowDefault()
-        ble.externalLog(mark.logLine())
         ble.buzz(1)
         viewModelScope.launch {
-            // Use the SAME "my-whoop" series source the Sleep screen's mark card writes (SleepScreen.kt)
-            // and reads back from, so a double-tap mark lands in the same place a tapped one does.
-            runCatching { repository.upsertMetricSeries(listOf(mark.metricPoint("my-whoop"))) }
+            recordSleepMark(SleepMarkType.BEDTIME)
         }
     }
 
@@ -3178,6 +3326,10 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
         const val STRAP_ALARM_REARM_INTERVAL_MS = 24 * 60 * 60 * 1_000L
         /** SharedPreferences key for the persisted double-tap action (stored as the enum NAME). */
         const val DOUBLE_TAP_ACTION_KEY = "noop.doubleTapAction"
+        const val ANALYTICS_WATERMARK_REVISION = "oura-restore-v3"
+        const val MIN_MARKED_SLEEP_SECONDS = 5L * 60L
+        const val MAX_MARKED_SLEEP_SECONDS = 16L * 60L * 60L
+        const val OURA_HISTORY_PERSIST_SETTLE_MS = 1_500L
     }
 }
 

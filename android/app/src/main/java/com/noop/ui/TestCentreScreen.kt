@@ -721,6 +721,10 @@ private fun DiagnosticToolsCard(vm: AppViewModel) {
     var ouraPaired by remember { mutableStateOf(false) }
     var ouraOnsetKeying by remember { mutableStateOf(NoopPrefs.ouraOnsetKeying(context)) }
     var ouraNotifyMaskFull by remember { mutableStateOf(NoopPrefs.ouraNotifyMaskFull(context)) }
+    // Oura SpO2 feature-mode experiment: the write awaiting confirmation (true = enable, false = disable)
+    // and the outcome line shown under the buttons after a send.
+    var pendingOuraSpO2Enable by remember { mutableStateOf<Boolean?>(null) }
+    var ouraSpO2Result by remember { mutableStateOf<String?>(null) }
     LaunchedEffect(Unit) {
         val paired = runCatching { vm.pairedDevices() }.getOrDefault(emptyList())
         polarIdentity = PolarModel.debugIdentification(paired.firstOrNull { PolarModel.isPolar(it.model) }?.model)
@@ -821,6 +825,23 @@ private fun DiagnosticToolsCard(vm: AppViewModel) {
                     checked = ouraNotifyMaskFull,
                     onCheckedChange = { ouraNotifyMaskFull = it; vm.setOuraNotifyMaskFull(it) },
                 )
+                // SpO2 feature-mode experiment (OURA_PROTOCOL.md s7.5). Each button only opens a confirmation;
+                // nothing is written automatically, and the ring's verdict lands in the strap log.
+                Text(stringResource(R.string.oura_spo2_mode_title), style = NoopType.subhead, color = Palette.textPrimary)
+                Text(stringResource(R.string.oura_spo2_mode_desc), style = NoopType.footnote, color = Palette.textSecondary)
+                NoopButton(
+                    text = stringResource(R.string.oura_spo2_mode_enable),
+                    kind = NoopButtonKind.Secondary,
+                    fullWidth = true,
+                    onClick = { pendingOuraSpO2Enable = true },
+                )
+                NoopButton(
+                    text = stringResource(R.string.oura_spo2_mode_disable),
+                    kind = NoopButtonKind.Secondary,
+                    fullWidth = true,
+                    onClick = { pendingOuraSpO2Enable = false },
+                )
+                ouraSpO2Result?.let { Text(it, style = NoopType.footnote, color = Palette.accent) }
             }
             // #1121 Detailed capture: an adb-like rolling on-device log, no computer needed. Off by default.
             ToggleRowTC(
@@ -885,6 +906,34 @@ private fun DiagnosticToolsCard(vm: AppViewModel) {
             },
             dismissButton = {
                 TextButton(onClick = { showRecalibrate = false }) {
+                    Text(uiString(R.string.l10n_test_centre_screen_cancel_77dfd213), style = NoopType.body, color = Palette.textSecondary)
+                }
+            },
+        )
+    }
+    pendingOuraSpO2Enable?.let { enable ->
+        val sentText = stringResource(R.string.oura_spo2_mode_sent)
+        val notConnectedText = stringResource(R.string.oura_spo2_mode_not_connected)
+        AlertDialog(
+            onDismissRequest = { pendingOuraSpO2Enable = null },
+            containerColor = Palette.surfaceOverlay,
+            title = {
+                Text(
+                    stringResource(if (enable) R.string.oura_spo2_mode_confirm_enable else R.string.oura_spo2_mode_confirm_disable),
+                    style = NoopType.title2, color = Palette.textPrimary,
+                )
+            },
+            text = {
+                Text(stringResource(R.string.oura_spo2_mode_confirm_body), style = NoopType.subhead, color = Palette.textSecondary)
+            },
+            confirmButton = {
+                TextButton(onClick = {
+                    ouraSpO2Result = if (vm.writeOuraSpO2Mode(enable)) sentText else notConnectedText
+                    pendingOuraSpO2Enable = null
+                }) { Text(stringResource(R.string.oura_spo2_mode_send), style = NoopType.body, color = Palette.accent) }
+            },
+            dismissButton = {
+                TextButton(onClick = { pendingOuraSpO2Enable = null }) {
                     Text(uiString(R.string.l10n_test_centre_screen_cancel_77dfd213), style = NoopType.body, color = Palette.textSecondary)
                 }
             },

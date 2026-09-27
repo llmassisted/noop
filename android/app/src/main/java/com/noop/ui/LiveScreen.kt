@@ -127,6 +127,7 @@ fun LiveScreen(viewModel: AppViewModel, onManageDevices: () -> Unit = {}) {
     // REQUESTS it (rather than silently doing nothing), then connects once allowed. Shared with
     // Settings → Re-scan via rememberRequestScan so no entry point can forget the gate (issue #1).
     val requestConnect = rememberRequestScan { viewModel.connect() }
+    val requestRingReconnect = rememberRequestScan { viewModel.reconnectOuraRing() }
 
     // Keep the realtime HR stream on while this screen is visible (ref-counted in the ViewModel, so
     // navigating to Health Monitor — which also wants it — doesn't stop it). Refresh battery on bond.
@@ -261,7 +262,7 @@ fun LiveScreen(viewModel: AppViewModel, onManageDevices: () -> Unit = {}) {
         // — the same "no link yet" slot the WHOOP callout fills.
         if (activeIsOura && ringPhase != com.noop.ble.OuraLiveSource.LinkPhase.AUTHENTICATED) {
             item {
-            RingConnectCallout(phase = ringPhase, onReconnect = { viewModel.reconnectOuraRing() })
+            RingConnectCallout(phase = ringPhase, onReconnect = requestRingReconnect)
             }
         }
 
@@ -668,7 +669,7 @@ fun LiveScreen(viewModel: AppViewModel, onManageDevices: () -> Unit = {}) {
         } else if (activeIsOura) {
         item {
         RingControls(phase = ringPhase, streaming = live.connected && live.streamingLiveHR,
-            onReconnect = { viewModel.reconnectOuraRing() })
+            onReconnect = requestRingReconnect)
         }
         }
 

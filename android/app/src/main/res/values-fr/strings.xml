@@ -2819,4 +2819,42 @@
     <string name="data_sources_whoop_live_subtitle">S\'associe directement à votre bracelet par Bluetooth : pas d\'app WHOOP, pas de cloud. Le bracelet peut aussi annoncer sa fréquence cardiaque comme capteur Bluetooth standard.</string>
     <string name="data_sources_band_broadcast_description">Diffuse en Bluetooth la fréquence cardiaque en direct propre au bracelet pour Garmin, Zwift ou les équipements de sport.</string>
     <string name="whoop4_direct_broadcast_explainer">Votre WHOOP 4.0 peut diffuser directement la fréquence cardiaque. Ouvrez Sources de données et utilisez « Diffuser la fréquence cardiaque du bracelet » pour Zwift, Peloton, Garmin ou les équipements de sport. Vous pouvez aussi utiliser « Diffuser la FC depuis ce téléphone » si nécessaire.</string>
+
+    <!-- Oura native and NOOP HRV comparison -->
+    <string name="oura_hrv_latest">Dernières valeurs disponibles</string>
+    <string name="oura_hrv_computed">Calculé par NOOP</string>
+    <string name="oura_hrv_no_night">Aucune nuit calculée</string>
+    <string name="oura_hrv_samples">Mesures</string>
+    <string name="oura_hrv_sources">Sources de VFC</string>
+    <string name="oura_hrv_history">Historique de VFC</string>
+    <string name="oura_hrv_calibrating">La VFC NOOP est encore en cours de calibration</string>
+    <string name="oura_hrv_loading">Chargement de l’historique de VFC Oura.</string>
+    <string name="oura_hrv_rest_available">La comparaison de la période de repos apparaît ci-dessus. La tendance nocturne nécessite du sommeil détecté.</string>
+    <string name="oura_hrv_pairing">Finalisation de l’appairage</string>
+    <string name="oura_hrv_resting_detail">NOOP calcule la VFC sur la même période de repos. Elle ne contribue à Charge que lorsque du sommeil est détecté. Oura fait la moyenne de %1$d mesures de cinq minutes.</string>
+    <string name="oura_hrv_nightly_detail">NOOP calcule la VFC pour Charge à partir des intervalles entre battements enregistrés. Oura fait la moyenne de %1$d mesures de cinq minutes.</string>
+    <string name="oura_hrv_table_note">Chaque mesure Oura couvre cinq minutes de repos. NOOP utilise les intervalles entre battements correspondants. — indique un manque de données valides.</string>
+
+    <!-- Oura SpO2 feature-mode experiment (Test Centre) -->
+    <string name="oura_spo2_mode_title">Mesure SpO2 Oura (expérimental)</string>
+    <string name="oura_spo2_mode_desc">Demande à la bague d\'enregistrer l\'oxygène sanguin la nuit. Non vérifié sur les bagues où Oura n\'a jamais activé la SpO2. Désactiver annule le réglage. La réponse de la bague apparaît dans le journal du bracelet.</string>
+    <string name="oura_spo2_mode_enable">Activer la SpO2 sur la bague</string>
+    <string name="oura_spo2_mode_disable">Désactiver la SpO2 sur la bague</string>
+    <string name="oura_spo2_mode_confirm_enable">Activer la SpO2 sur la bague ?</string>
+    <string name="oura_spo2_mode_confirm_disable">Désactiver la SpO2 sur la bague ?</string>
+    <string name="oura_spo2_mode_confirm_body">Ceci envoie un changement de réglage à la bague. L\'autre bouton l\'annule.</string>
+    <string name="oura_spo2_mode_send">Envoyer</string>
+    <string name="oura_spo2_mode_sent">Envoyé. Consultez le journal du bracelet pour la réponse de la bague.</string>
+    <string name="oura_spo2_mode_not_connected">Bague non connectée. Attendez la connexion, puis réessayez.</string>
+
+    <!-- Oura activity estimate (Health card) -->
+    <string name="oura_activity_title">Activité</string>
+    <string name="oura_activity_overline">Estimation Oura</string>
+    <string name="oura_activity_active_min">Min actives</string>
+    <string name="oura_activity_met_min">min MET</string>
+    <string name="oura_activity_kcal">kcal actives</string>
+    <string name="oura_activity_coverage">Aujourd\'hui, d\'après %1$d min de données de la bague.</string>
+    <string name="oura_activity_none_today">Pas encore de données d\'activité de la bague aujourd\'hui.</string>
+    <string name="oura_activity_week">7 derniers jours</string>
+    <string name="oura_activity_note">Estimé à partir de l\'intensité de mouvement de la bague (MET). Les minutes à 3 MET ou plus comptent comme actives ; les minutes non enregistrées par la bague comptent comme inactives. Ce n\'est pas un nombre de pas et ce n\'est pas utilisé dans les scores.</string>
 </resources>

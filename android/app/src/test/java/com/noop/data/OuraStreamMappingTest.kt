@@ -379,8 +379,10 @@ class OuraStreamMappingTest {
     @Test
     fun tierBAndActivityInfoNeverMapToAStream() {
         // HONEST-DATA INVARIANT (PR #960): Tier-B raw summaries AND the decoded-but-unvalidated 0x50
-        // activity/MET events must never produce a durable stream row (in particular no step count is
-        // ever minted from MET - it is not one), exactly like the Swift twin's drop test.
+        // activity/MET events must never produce a scored stream row (in particular no step count is
+        // ever minted from MET - it is not one). Android-only since the fork's activity card: 0x50 is
+        // kept as ONE OURA_MET estimate row in the event table (never a stream value); the Swift twin
+        // still drops it.
         val s = OuraStreamMapping.streams(
             listOf(
                 OuraEvent.TierB(
@@ -402,7 +404,7 @@ class OuraStreamMappingTest {
         )
         assertTrue(s.hr.isEmpty())
         assertTrue(s.rr.isEmpty())
-        assertTrue(s.events.isEmpty())
+        assertEquals(listOf(OuraStreamMapping.EVENT_MET), s.events.map { it.kind })
         assertTrue(s.battery.isEmpty())
         assertTrue(s.spo2.isEmpty())
         assertTrue(s.skinTemp.isEmpty())

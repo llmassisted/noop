@@ -110,6 +110,21 @@ data class DetectedSleep(
 )
 
 /**
+ * A trusted in-bed boundary supplied outside the motion detector.
+ *
+ * Oura Ring 4 does not expose a continuous gravity stream, so its ring-provided SleepNet session (when
+ * available), a sufficiently long automatic-resting window, or a user-marked bedtime/wake pair must be
+ * able to provide the bounds while the normal NOOP stager derives physiology inside them. [stages] is
+ * non-null only when the source already supplied a hypnogram; otherwise V1/V2 stages the bounded raw
+ * cardio streams. The detector remains unchanged for every source that has motion.
+ */
+data class SleepWindowHint(
+    val start: Long,
+    val end: Long,
+    val stages: List<StageSegment>? = null,
+)
+
+/**
  * AASM-style metrics from a session's stage segments.
  * Mirrors Swift `SleepStager.HypnogramMetrics`.
  */

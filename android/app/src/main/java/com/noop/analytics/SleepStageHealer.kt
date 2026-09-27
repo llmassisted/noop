@@ -66,12 +66,16 @@ object SleepStageHealer {
         // observed gravity + step density, so turning it on is a no-op for any night too sparse to trust
         // (e.g. a WHOOP 4.0, which never emits a step sample at all).
         useMotionAwareWake: Boolean = false,
+        // Oura Ring 4 has no continuous gravity stream. For an EXPLICIT user-marked window, permit V2 to
+        // stage from the ring's HR/R-R evidence instead of failing the WHOOP motion-density gate. This is
+        // opt-in at the Oura manual-session call site only; self-heal and every WHOOP path stay unchanged.
+        allowCardioOnly: Boolean = false,
     ): String? {
         val lo = start - 3_600L
         val hi = end + 3_600L
         val grav = repo.gravitySamplesForDevice(deviceId, lo, hi, IntelligenceEngine.STREAM_LIMIT)
         // Cheap density gate FIRST (count only) so a sparse imported night skips the three further reads.
-        if (!isDense(grav, start, end)) return null
+        if (!isDense(grav, start, end) && !allowCardioOnly) return null
         val hr = repo.hrSamplesForDevice(deviceId, lo, hi, IntelligenceEngine.STREAM_LIMIT)
         val rr = repo.rrIntervalsForDevice(deviceId, lo, hi, IntelligenceEngine.STREAM_LIMIT)
         // Same provenance refusal as the nightly scan: an Oura ring's respiration rows are its own
@@ -82,7 +86,13 @@ object SleepStageHealer {
         )
         // Only read when the refinement might actually use it — no point paying for it on the (default) off path.
         val steps = if (useMotionAwareWake) repo.stepSamples(deviceId, lo, hi, IntelligenceEngine.STREAM_LIMIT) else emptyList()
-        return restageFromSamples(start, end, grav, hr, rr, resp, useExperimentalSleepV2, steps, useMotionAwareWake)
+        return restageFromSamples(
+            start, end, grav, hr, rr, resp,
+            useExperimentalSleepV2 = useExperimentalSleepV2 || allowCardioOnly,
+            steps = steps,
+            useMotionAwareWake = useMotionAwareWake,
+            allowCardioOnly = allowCardioOnly,
+        )
     }
 
     /**
@@ -123,8 +133,17 @@ object SleepStageHealer {
         // just ran, reclassifying a hot-but-still wake segment to light. Default false, self-gated on
         // observed density either way — see [WakeMotionRefinement].
         useMotionAwareWake: Boolean = false,
+        allowCardioOnly: Boolean = false,
     ): String? {
-        if (!isDense(grav, start, end)) return null
+        if (!isDense(grav, start, end)) {
+            if (!allowCardioOnly) return null
+            // A boundary mark is evidence of sleep, not evidence that sensor data exists. Require enough
+            // ring cardio rows to make the V2 staging meaningful; otherwise the repository stores an
+            // honestly approximate light block and a later sync can self-heal it.
+            val inWindowHr = hr.count { it.ts in start..end }
+            val inWindowRr = rr.count { it.ts in start..end }
+            if (inWindowHr < 2 && inWindowRr < 10) return null
+        }
         val segs = if (useExperimentalSleepV2) {
             SleepStagerV2.stageSession(start = start, end = end, grav = grav, hr = hr, rr = rr, resp = resp)
         } else {
@@ -171,7 +190,9 @@ object SleepStageHealer {
             // STRAP id (where the sensor streams live), not the computed namespace. Skip when the raw
             // isn't dense yet, or when the result already matches what's stored (steady state — no write).
             val newJSON = restageFromRaw(repo, strapDeviceId, row.effectiveStartTs, row.endTs,
-                useExperimentalSleepV2, useMotionAwareWake) ?: continue
+                useExperimentalSleepV2, useMotionAwareWake,
+                allowCardioOnly = strapDeviceId.startsWith("oura-", ignoreCase = true),
+            ) ?: continue
             if (newJSON == row.stagesJSON) continue
             // Keyed by the IMMUTABLE detected startTs (never effectiveStartTs) so it lands on the right
             // primary-key row; the DAO scopes the write to userEdited = 1.

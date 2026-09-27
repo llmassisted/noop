@@ -984,7 +984,12 @@ edit of the ring's tag.
     cadence, not a decode drop) - so any daily active-minute total derived from it UNDERCOUNTS. This
     corroborates the "plausible, tracks activity" read while keeping it Tier B: still not a step count, still
     not ground-truth-validated against Oura's own numbers, still never scored. NOOP has no MET field in its
-    HR/strain data model, so `0x50` remains a diagnostic JSONL corpus (`oura-activity-<id>.jsonl`); the ring's
+    HR/strain data model, so `0x50` remains a diagnostic JSONL corpus (`oura-activity-<id>.jsonl`) on Swift;
+    **Android (fork)** additionally keeps each anchored record as an `OURA_MET` event row (`met_x10` exact tenths,
+    `sec_per_sample`, `state`), imports the pre-existing sidecar once into the same rows, and shows a Health-card
+    ESTIMATE (active minutes at ≥ 3 MET, MET-minutes, above-resting kcal via `OuraActivityEstimator`) — samples laid
+    backward from the record time (within-record order unpinned: an inter-record continuity test on 95 live record
+    pairs could not separate the two orders, because records are usually not contiguous), never scored; the ring's
     path into NOOP activity is HR (live push + banked IBI, §6.4), never MET. open_oura consumes this same
     `0x50` `met` as one input to its activity classifier (`activity_model.rs`). [open_oura-act]
   - **✅ `0x50` MET TRACKS A VARYING INPUT — the strongest validation to date (NOOP, 2026-08-02, live Gen 3).**
@@ -1255,6 +1260,7 @@ NOOP ships a **read-only** probe that asks the ring to report a feature's own st
 - **SpO2 (`0x04`) is not covered by this evidence.** On the source ring, SpO2 already read AUTOMATIC by default before any write was sent — the experiment never demonstrated forcing SpO2 from a gate-OFF state, which is the case NOOP's own 2026-07-20 capture is actually in. Whether `2f 03 22 04 01` flips a gate-OFF SpO2 ring is untested by both projects.
 - The wire bytes (`2f 03 22 <id> <mode>` → `2f 03 23 <id> <status>`) are independently verifiable over BLE and are already cited into §7.1 from [ring4-ble]/[open_oura-feat]; only the *outcome of actually sending it on a gated ring* is new here. The *rationale* `ring-features.md` gives for why this works (`FeatureDefinitions.*` server-flag names, the `b0.smali` enable sequence) is attributed there to decompiled-app analysis and is cited here as background only — NOOP implements neither that code nor those literals.
 - **The account-gate bypass remains UNVALIDATED on NOOP's own hardware.** The write itself is now reachable, from Test Centre only (#2105), behind an explicit confirmation; no automatic path in `OuraDriver` sends it, and §7.4's status probe stays read-only. The write MECHANISM is confirmed here: disabling then re-enabling SpO2 flipped `mode` 1→0→1, reproduced in both directions on a real Gen 3. That ring was already cloud-entitled, so it does not test the bypass. Whether `2f 03 22 04 01` moves a gate-OFF SpO2 ring is still open work.
+- **Android (fork):** the same write is reachable from the Android Test Centre (SpO2 only, enable = mode `0x01`, disable = mode `0x00`), confirmation-gated and never automatic. Android additionally routes the ring's `2f 03 23 <id> <status>` reply for any feature other than daytime HR as a verdict (`0` accepted, `1` NOT_SUPPORTED, `2` NOT_AVAILABLE per [open_oura-feat]) and logs it, instead of treating it as a live-HR triplet ACK; this is what distinguishes "the ring refused" from "accepted, no data yet". If SpO2 then produces `0x8b` (§6.5.1), the history drain logs the first raw payloads per session as decoder fixtures; nothing is decoded or stored from them.
 
 ---
 

@@ -513,6 +513,7 @@ fun SettingsScreen(
     val context = LocalContext.current
     val scope = rememberCoroutineScope()
     val live by vm.live.collectAsStateWithLifecycle()
+    val activeIsOura by vm.activeIsOura.collectAsStateWithLifecycle()
     // #2338: the read-only advertising-name probe result. Its own flow on the BLE client rather than a
     // LiveState field, matching the other opcode probes.
     val advertisingNameProbe by vm.advertisingNameProbe.collectAsStateWithLifecycle()
@@ -2055,10 +2056,11 @@ fun SettingsScreen(
                 )
                 Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     NoopButton(
-                        text = if (live.scanning) "Searching…" else "Re-scan",
+                        text = if (activeIsOura) uiString(R.string.l10n_live_screen_reconnect_ring_3111ab8f)
+                            else if (live.scanning) "Searching…" else "Re-scan",
                         leadingIcon = Icons.Filled.Refresh,
                         kind = NoopButtonKind.Primary,
-                        enabled = !live.scanning,
+                        enabled = activeIsOura || !live.scanning,
                         onClick = { requestScan() },
                     )
 

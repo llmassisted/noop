@@ -2791,4 +2791,42 @@
     <string name="data_sources_whoop_live_subtitle">通过 Bluetooth 直接连接手环：无需 WHOOP 应用，也无需云端。手环还可以将心率作为标准 Bluetooth 传感器进行广播。</string>
     <string name="data_sources_band_broadcast_description">通过 Bluetooth 将手环自身的实时心率广播给 Garmin、Zwift 或健身器材。</string>
     <string name="whoop4_direct_broadcast_explainer">WHOOP 4.0 可以直接广播心率。打开“数据来源”，启用“从手环广播心率”，即可连接 Zwift、Peloton、Garmin 或健身器材。需要时也可以使用“从此手机广播心率”。</string>
+
+    <!-- Oura native and NOOP HRV comparison -->
+    <string name="oura_hrv_latest">最新可用数据</string>
+    <string name="oura_hrv_computed">NOOP 计算值</string>
+    <string name="oura_hrv_no_night">暂无夜间计算结果</string>
+    <string name="oura_hrv_samples">样本</string>
+    <string name="oura_hrv_sources">HRV 数据来源</string>
+    <string name="oura_hrv_history">HRV 历史</string>
+    <string name="oura_hrv_calibrating">NOOP HRV 仍在校准</string>
+    <string name="oura_hrv_loading">正在加载 Oura HRV 历史。</string>
+    <string name="oura_hrv_rest_available">上方显示了同一静息时段的对比。夜间趋势需要先检测到睡眠。</string>
+    <string name="oura_hrv_pairing">正在完成配对</string>
+    <string name="oura_hrv_resting_detail">NOOP 根据同一静息时段计算 HRV。检测到睡眠后，该结果才会计入 Charge。Oura 取 %1$d 个五分钟测量值的平均值。</string>
+    <string name="oura_hrv_nightly_detail">NOOP 根据已保存的心搏间期计算用于 Charge 的 HRV。Oura 取 %1$d 个五分钟测量值的平均值。</string>
+    <string name="oura_hrv_table_note">每个 Oura 样本覆盖五分钟静息时段。NOOP 使用对应的心搏间期。— 表示有效数据不足。</string>
+
+    <!-- Oura SpO2 feature-mode experiment (Test Centre) -->
+    <string name="oura_spo2_mode_title">Oura 血氧测量（实验性）</string>
+    <string name="oura_spo2_mode_desc">请求戒指在夜间记录血氧。在 Oura 从未启用血氧的戒指上尚未验证。点击停用即可恢复。戒指的回复会显示在手环日志中。</string>
+    <string name="oura_spo2_mode_enable">在戒指上启用血氧</string>
+    <string name="oura_spo2_mode_disable">在戒指上停用血氧</string>
+    <string name="oura_spo2_mode_confirm_enable">在戒指上启用血氧？</string>
+    <string name="oura_spo2_mode_confirm_disable">在戒指上停用血氧？</string>
+    <string name="oura_spo2_mode_confirm_body">这会向戒指发送一项设置更改。另一个按钮可将其恢复。</string>
+    <string name="oura_spo2_mode_send">发送</string>
+    <string name="oura_spo2_mode_sent">已发送。请在手环日志中查看戒指的回复。</string>
+    <string name="oura_spo2_mode_not_connected">戒指未连接。请等待连接后重试。</string>
+
+    <!-- Oura activity estimate (Health card) -->
+    <string name="oura_activity_title">活动</string>
+    <string name="oura_activity_overline">Oura 估算</string>
+    <string name="oura_activity_active_min">活动分钟</string>
+    <string name="oura_activity_met_min">MET 分钟</string>
+    <string name="oura_activity_kcal">活动千卡</string>
+    <string name="oura_activity_coverage">今天，基于 %1$d 分钟的戒指数据。</string>
+    <string name="oura_activity_none_today">今天还没有来自戒指的活动数据。</string>
+    <string name="oura_activity_week">最近 7 天</string>
+    <string name="oura_activity_note">根据戒指的运动强度（MET）估算。3 MET 及以上的分钟计为活动；戒指未记录的分钟计为不活动。这不是步数，也不用于评分。</string>
 </resources>

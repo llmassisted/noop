@@ -2834,4 +2834,42 @@
     <string name="data_sources_whoop_live_subtitle">Łączy się bezpośrednio z paskiem przez Bluetooth: bez aplikacji WHOOP i bez chmury. Pasek może też nadawać tętno jako standardowy czujnik Bluetooth.</string>
     <string name="data_sources_band_broadcast_description">Transmituje własne tętno paska na żywo przez Bluetooth do Garmin, Zwift lub sprzętu na siłowni.</string>
     <string name="whoop4_direct_broadcast_explainer">WHOOP 4.0 może nadawać tętno bezpośrednio. Otwórz Źródła danych i użyj opcji „Transmituj tętno z opaski” dla Zwift, Peloton, Garmin lub sprzętu na siłowni. W razie potrzeby możesz też użyć opcji „Transmituj tętno z tego telefonu”.</string>
+
+    <!-- Oura native and NOOP HRV comparison -->
+    <string name="oura_hrv_latest">Najnowsze dostępne dane</string>
+    <string name="oura_hrv_computed">Obliczone przez NOOP</string>
+    <string name="oura_hrv_no_night">Brak obliczeń dla nocy</string>
+    <string name="oura_hrv_samples">Pomiary</string>
+    <string name="oura_hrv_sources">Źródła HRV</string>
+    <string name="oura_hrv_history">Historia HRV</string>
+    <string name="oura_hrv_calibrating">Kalibracja HRV w NOOP nadal trwa</string>
+    <string name="oura_hrv_loading">Wczytywanie historii HRV Oura.</string>
+    <string name="oura_hrv_rest_available">Porównanie okresu odpoczynku jest widoczne powyżej. Trend nocny wymaga wykrytego snu.</string>
+    <string name="oura_hrv_pairing">Kończenie parowania</string>
+    <string name="oura_hrv_resting_detail">NOOP oblicza HRV dla tego samego okresu odpoczynku. Wynik wpływa na Charge dopiero po wykryciu snu. Oura oblicza średnią z pomiarów pięciominutowych; ich liczba: %1$d.</string>
+    <string name="oura_hrv_nightly_detail">NOOP oblicza HRV dla Charge z zapisanych odstępów między uderzeniami serca. Oura oblicza średnią z pomiarów pięciominutowych; ich liczba: %1$d.</string>
+    <string name="oura_hrv_table_note">Każdy pomiar Oura obejmuje pięć minut odpoczynku. NOOP używa odpowiadających mu odstępów między uderzeniami serca. — oznacza za mało poprawnych danych.</string>
+
+    <!-- Oura SpO2 feature-mode experiment (Test Centre) -->
+    <string name="oura_spo2_mode_title">Pomiar SpO2 Oura (eksperymentalny)</string>
+    <string name="oura_spo2_mode_desc">Prosi pierścień o rejestrowanie natlenienia krwi w nocy. Niesprawdzone na pierścieniach, w których Oura nigdy nie włączyła SpO2. Wyłączenie cofa zmianę. Odpowiedź pierścienia pojawia się w logu opaski.</string>
+    <string name="oura_spo2_mode_enable">Włącz SpO2 w pierścieniu</string>
+    <string name="oura_spo2_mode_disable">Wyłącz SpO2 w pierścieniu</string>
+    <string name="oura_spo2_mode_confirm_enable">Włączyć SpO2 w pierścieniu?</string>
+    <string name="oura_spo2_mode_confirm_disable">Wyłączyć SpO2 w pierścieniu?</string>
+    <string name="oura_spo2_mode_confirm_body">Wysyła to jedną zmianę ustawienia do pierścienia. Drugi przycisk ją cofa.</string>
+    <string name="oura_spo2_mode_send">Wyślij</string>
+    <string name="oura_spo2_mode_sent">Wysłano. Odpowiedź pierścienia znajdziesz w logu opaski.</string>
+    <string name="oura_spo2_mode_not_connected">Pierścień nie jest połączony. Poczekaj na połączenie i spróbuj ponownie.</string>
+
+    <!-- Oura activity estimate (Health card) -->
+    <string name="oura_activity_title">Aktywność</string>
+    <string name="oura_activity_overline">Szacunek Oura</string>
+    <string name="oura_activity_active_min">Aktywne min</string>
+    <string name="oura_activity_met_min">min MET</string>
+    <string name="oura_activity_kcal">Aktywne kcal</string>
+    <string name="oura_activity_coverage">Dziś, na podstawie %1$d min danych z pierścienia.</string>
+    <string name="oura_activity_none_today">Brak dziś danych o aktywności z pierścienia.</string>
+    <string name="oura_activity_week">Ostatnie 7 dni</string>
+    <string name="oura_activity_note">Szacowane na podstawie intensywności ruchu z pierścienia (MET). Minuty z 3+ MET liczą się jako aktywne; minuty niezarejestrowane przez pierścień liczą się jako nieaktywne. To nie jest liczba kroków i nie wpływa na wyniki.</string>
 </resources>
