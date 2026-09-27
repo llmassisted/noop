@@ -2629,6 +2629,8 @@ object IntelligenceEngine {
     internal data class DetectorIndependentSleep(
         val provided: List<DetectedSleep>,
         val hints: List<SleepWindowHint>,
+        /** How many of [hints] are the ring's OWN native-resting sleep windows (manual edits excluded). */
+        val ringRestingHints: Int = 0,
     )
 
     /** Resolve the evidence used by the real nightly pass, including an active Oura owner whose id
@@ -2647,6 +2649,9 @@ object IntelligenceEngine {
         nightEvents: List<com.noop.data.EventRow>,
         diag: (String) -> Unit,
     ): DetectorIndependentSleep {
+        val evidence = detectorIndependentSleepForDay(
+            day, tzOffsetSeconds, ownerIsOura, editedRows, providedRows, nightEvents, diag,
+        )
         val provided = if (gravityRows < 2) {
             val stored = providedRows.mapNotNull(AnalyticsEngine::sleepSessionFromProvided)
             when {
@@ -2658,15 +2663,22 @@ object IntelligenceEngine {
                     diag(SleepStagerTrace.hrOnlyGateLine(day, false, "stored-sessions-exist", gravityRows, stored.size))
                     emptyList()
                 }
+                // The ring's own resting-window sleep already bounds this wake-day's night. The HR-only
+                // spine is a FALLBACK for a day with no sleep evidence, not a second source: run beside the
+                // ring hints it minted its own night (a 934-min block across a whole daytime on 2026-09-24),
+                // both were scored (1,379 min, matched=2), and the #899 overlap heal then deleted the
+                // adjacent real night on every pass. Manual edits alone keep the fallback.
+                ownerIsOura && evidence.ringRestingHints > 0 -> {
+                    diag(SleepStagerTrace.hrOnlyGateLine(day, false, "oura-resting-sleep", gravityRows, 0))
+                    emptyList()
+                }
                 else -> {
                     diag(SleepStagerTrace.hrOnlyGateLine(day, true, "no-motion-no-hypnogram", gravityRows, 0))
                     SleepStager.hrOnlySessions(day, hr, rr, resp, traceSink = diag)
                 }
             }
         } else emptyList()
-        return detectorIndependentSleepForDay(
-            day, tzOffsetSeconds, ownerIsOura, editedRows, providedRows, nightEvents, diag,
-        ).copy(provided = provided)
+        return evidence.copy(provided = provided)
     }
 
     private fun detectorIndependentSleepForDay(
@@ -2697,6 +2709,7 @@ object IntelligenceEngine {
             if (trusted.none { it.start < hint.end && hint.start < it.end }) trusted.add(hint)
         }
         manual.forEach(::addIfDisjoint)
+        val beforeRing = trusted.size
         resting.asSequence()
             .filter(OuraRestingWindows::isSleepCandidate)
             .map { SleepWindowHint(it.startTs, it.endTs) }
@@ -2709,7 +2722,7 @@ object IntelligenceEngine {
             "oura rest day=$day windows=${resting.size} shortKept=$shortCount " +
                 "sleepHints=${trusted.size}",
         )
-        return DetectorIndependentSleep(provided, trusted)
+        return DetectorIndependentSleep(provided, trusted, ringRestingHints = trusted.size - beforeRing)
     }
 
     private fun sleepEditedDaily(
