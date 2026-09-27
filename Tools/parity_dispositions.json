@@ -420,14 +420,6 @@
     {
       "type": "platform_specific",
       "kind": "add-unpaired-constant",
-      "identity": "kotlin\u0000android/app/src/main/java/com/noop/oura/OuraEvents.kt::RATIO_PERCENT_UNIT",
-      "identity_sha256": "45a61921ac2064b62ce539181f06665077c4761da490e2994ce3bd0e3d4e7d8a",
-      "platform": "kotlin",
-      "rationale": "Android-only decode of the Ring 4 0x8b spo2_r_pi stream (OURA_PROTOCOL.md s6.5.1) into a phone-derived SpO2 percentage (gen4 quadratic cited from [open_oura-spo2]), tagged r_pi_pct and surfaced only through the SpO2 estimate display path. The fork's SpO2 feature-mode enable is Android-only, so only this platform receives 0x8b."
-    },
-    {
-      "type": "platform_specific",
-      "kind": "add-unpaired-constant",
       "identity": "kotlin\u0000android/app/src/main/java/com/noop/oura/OuraSpO2Ratio.kt::COEF_A",
       "identity_sha256": "a2056e203b381c266ca9fced680aeb0a7a7c7543a42cc22b46c9eda98e709fcc",
       "platform": "kotlin",
@@ -488,6 +480,62 @@
       "identity_sha256": "c513f2be9fff544a5dbee95f54f28458bec979b5a3c57292191ac3f88f1970a7",
       "platform": "kotlin",
       "rationale": "Android-only decode of the Ring 4 0x8b spo2_r_pi stream (OURA_PROTOCOL.md s6.5.1) into a phone-derived SpO2 percentage (gen4 quadratic cited from [open_oura-spo2]), tagged r_pi_pct and surfaced only through the SpO2 estimate display path. The fork's SpO2 feature-mode enable is Android-only, so only this platform receives 0x8b."
+    },
+    {
+      "type": "platform_specific",
+      "kind": "add-unpaired-constant",
+      "identity": "kotlin\u0000android/app/src/main/java/com/noop/analytics/OuraSpO2Nightly.kt::PI_SATURATED",
+      "identity_sha256": "feee8e608022c383aeefe7a840e7497f3640db2617bbf6ce88d4b69abbd0ccce",
+      "platform": "kotlin",
+      "rationale": "Android-only storage and nightly estimate for the Ring 4 0x8b spo2_r_pi stream (OURA_PROTOCOL.md s6.5.1): records are kept verbatim as OURA_SPO2_RPI events and converted at read time into the Oura SpO2 estimate (never spo2Pct, never scored). The fork's SpO2 feature-mode enable is Android-only, so only this platform receives 0x8b."
+    },
+    {
+      "type": "platform_specific",
+      "kind": "add-unpaired-constant",
+      "identity": "kotlin\u0000android/app/src/main/java/com/noop/data/OuraStreamMapping.kt::EVENT_SPO2_RPI",
+      "identity_sha256": "26f18c6f9913d8c83e972c3634a1606a0afcbeb5d597b4a648261fbe03d45c80",
+      "platform": "kotlin",
+      "rationale": "Android-only storage and nightly estimate for the Ring 4 0x8b spo2_r_pi stream (OURA_PROTOCOL.md s6.5.1): records are kept verbatim as OURA_SPO2_RPI events and converted at read time into the Oura SpO2 estimate (never spo2Pct, never scored). The fork's SpO2 feature-mode enable is Android-only, so only this platform receives 0x8b."
+    },
+    {
+      "type": "platform_specific",
+      "kind": "add-unpaired-file",
+      "identity": "kotlin\u0000android/app/src/main/java/com/noop/analytics/OuraSpO2Nightly.kt",
+      "identity_sha256": "a16ec04e9d1b7686c3124bc55776e0e118509f00793dbc90d02c3e08b26f088f",
+      "platform": "kotlin",
+      "rationale": "Android-only storage and nightly estimate for the Ring 4 0x8b spo2_r_pi stream (OURA_PROTOCOL.md s6.5.1): records are kept verbatim as OURA_SPO2_RPI events and converted at read time into the Oura SpO2 estimate (never spo2Pct, never scored). The fork's SpO2 feature-mode enable is Android-only, so only this platform receives 0x8b."
+    },
+    {
+      "type": "platform_specific",
+      "kind": "add-unpaired-function",
+      "identity": "kotlin\u0000android/app/src/main/java/com/noop/analytics/IntelligenceEngine.kt::spo2CandidateMean/7#1",
+      "identity_sha256": "e841530d08842be977ebce724b46f9f262179fbb267da49ed6a044ca7d491fcd",
+      "platform": "kotlin",
+      "rationale": "Android-only storage and nightly estimate for the Ring 4 0x8b spo2_r_pi stream (OURA_PROTOCOL.md s6.5.1): records are kept verbatim as OURA_SPO2_RPI events and converted at read time into the Oura SpO2 estimate (never spo2Pct, never scored). The fork's SpO2 feature-mode enable is Android-only, so only this platform receives 0x8b."
+    },
+    {
+      "type": "platform_specific",
+      "kind": "add-unpaired-function",
+      "identity": "kotlin\u0000android/app/src/main/java/com/noop/analytics/OuraSpO2Nightly.kt::displayMean/1#1",
+      "identity_sha256": "0621d0de852cbe823ae18586bf47c6f051ea174f233bf5ca4f86184ef9b73b70",
+      "platform": "kotlin",
+      "rationale": "Android-only storage and nightly estimate for the Ring 4 0x8b spo2_r_pi stream (OURA_PROTOCOL.md s6.5.1): records are kept verbatim as OURA_SPO2_RPI events and converted at read time into the Oura SpO2 estimate (never spo2Pct, never scored). The fork's SpO2 feature-mode enable is Android-only, so only this platform receives 0x8b."
+    },
+    {
+      "type": "platform_specific",
+      "kind": "add-unpaired-function",
+      "identity": "kotlin\u0000android/app/src/main/java/com/noop/analytics/OuraSpO2Nightly.kt::line/1#1",
+      "identity_sha256": "93eeafaac3d4b2801eb6d7b3550a676417f4d1a1796d24a4090f993397dca6f6",
+      "platform": "kotlin",
+      "rationale": "Android-only storage and nightly estimate for the Ring 4 0x8b spo2_r_pi stream (OURA_PROTOCOL.md s6.5.1): records are kept verbatim as OURA_SPO2_RPI events and converted at read time into the Oura SpO2 estimate (never spo2Pct, never scored). The fork's SpO2 feature-mode enable is Android-only, so only this platform receives 0x8b."
+    },
+    {
+      "type": "platform_specific",
+      "kind": "add-unpaired-function",
+      "identity": "kotlin\u0000android/app/src/main/java/com/noop/analytics/OuraSpO2Nightly.kt::summary/2#1",
+      "identity_sha256": "a77f37236a04c46f1900b9279980bd468a5ec3a357e02e9d2960a677cc81e21c",
+      "platform": "kotlin",
+      "rationale": "Android-only storage and nightly estimate for the Ring 4 0x8b spo2_r_pi stream (OURA_PROTOCOL.md s6.5.1): records are kept verbatim as OURA_SPO2_RPI events and converted at read time into the Oura SpO2 estimate (never spo2Pct, never scored). The fork's SpO2 feature-mode enable is Android-only, so only this platform receives 0x8b."
     }
   ]
 }

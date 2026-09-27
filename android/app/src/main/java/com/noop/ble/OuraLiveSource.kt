@@ -2687,6 +2687,11 @@ class OuraLiveSource(
                 )
                 enqueueAnchoredOrPark(e, v.ringTimestamp, d)
             }
+            is OuraEvent.Spo2Ratio -> {
+                // 0x8b SpO2 R-ratio record (history-only): stored verbatim as ONE OURA_SPO2_RPI event per
+                // record (OuraStreamMapping); the SpO2 estimate converts it at read time. Never scored.
+                enqueueAnchoredOrPark(e, e.value.ringTimestamp, d)
+            }
             is OuraEvent.MotionVectorEvent -> {
                 // 0x47 averaged accel vector (Tier-A). Persisted as an OURA_MOTION event (same event-table
                 // path as OURA_HRV / OURA_SLEEP_PHASE — see OuraStreamMapping), AND appended to the raw

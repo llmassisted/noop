@@ -455,7 +455,7 @@ class OuraDriver(
             OuraEventTag.SPO2_DC ->
                 (OuraDecoders.decodeSpO2DC(record) ?: emptyList()).map { OuraEvent.Spo2(it) }
             OuraEventTag.SPO2_R_PI ->
-                (OuraDecoders.decodeSpO2RatioPi(record) ?: emptyList()).map { OuraEvent.Spo2(it) }
+                OuraDecoders.decodeSpO2RatioPi(record)?.let { listOf(OuraEvent.Spo2Ratio(it)) } ?: emptyList()
 
             // --- Tier A: Temperature ---
             OuraEventTag.TEMP ->

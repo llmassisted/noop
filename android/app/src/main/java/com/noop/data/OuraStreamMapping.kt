@@ -43,6 +43,9 @@ object OuraStreamMapping {
     /** The event `kind` for a decoded 0x47 motion window (activity instrumentation). Must match Swift. */
     const val EVENT_MOTION = "OURA_MOTION"
 
+    /** The event `kind` for a verbatim 0x8b SpO2 R-ratio record (Android fork, OURA_PROTOCOL.md s6.5.1). */
+    const val EVENT_SPO2_RPI = "OURA_SPO2_RPI"
+
     /** The event `kind` for a decoded 0x50 activity/MET record (Tier-B activity ESTIMATE, never scored). */
     const val EVENT_MET = "OURA_MET"
 
@@ -127,9 +130,7 @@ object OuraStreamMapping {
                     // PPG/perfusion signal (-9K to +11.7M in the same capture) - not SpO2 at all, so
                     // blending it into `red` would corrupt any consumer that averages the stream with no
                     // unit filter. Mirrors the Swift OuraStreamMapping twin.
-                    // The Android fork also persists 0x8b's phone-derived percentage (unit "r_pi_pct",
-                    // OuraSpO2Ratio): same 85-100 % scale and the same `red` column, distinguishable by unit.
-                    if (ev.value.unit != "raw" && ev.value.unit != com.noop.oura.OuraSpO2Channel.RATIO_PERCENT_UNIT) continue
+                    if (ev.value.unit != "raw") continue
                     // The ring exposes ONE combined SpO2 reading (not separate red/ir channels): its
                     // raw value goes in `red`; `ir` stays 0 (an unread channel, never a fabricated
                     // second reading). `unit` carries the decoder's own scale tag so downstream never
@@ -223,6 +224,23 @@ object OuraStreamMapping {
                     m.lowIntensity?.let { payload["low_intensity"] = it }
                     m.highIntensity?.let { payload["high_intensity"] = it }
                     out.events.add(WhoopEvent(ts = ts, kind = EVENT_MOTION, payload = payload))
+                }
+
+                is OuraEvent.Spo2Ratio -> {
+                    // 0x8b → ONE OURA_SPO2_RPI event per record at the record's anchored ts, carrying the raw
+                    // R u16s and PI bytes verbatim. Record-level on purpose: records are >= 2.2 s apart, so
+                    // their ts never collide, whereas per-sample seconds did (4 samples per 2.2-4.6 s record,
+                    // spacing unpinned). The event kind also keeps this derived source apart from the 0x6F
+                    // firmware percentage, which `spo2Sample` (no unit column) could not. Never scored; the
+                    // SpO2 estimate converts at read time (OuraSpO2Ratio / OuraSpO2Nightly).
+                    val ts = anchor(ev.value.ringTimestamp) ?: continue
+                    out.events.add(
+                        WhoopEvent(
+                            ts = ts,
+                            kind = EVENT_SPO2_RPI,
+                            payload = linkedMapOf("r_x16384" to ev.value.rX16384, "pi" to ev.value.pi),
+                        ),
+                    )
                 }
 
                 is OuraEvent.ActivityInfo -> {

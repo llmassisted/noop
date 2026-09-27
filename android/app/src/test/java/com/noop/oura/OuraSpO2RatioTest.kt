@@ -1,72 +1,101 @@
 package com.noop.oura
 
+import com.noop.analytics.DetectedSleep
+import com.noop.analytics.OuraSpO2Nightly
+import com.noop.data.EventRow
 import com.noop.data.OuraStreamMapping
+import com.noop.data.StreamPersistence
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
- * The `0x8b` spo2_r_pi decode (OURA_PROTOCOL.md s6.5.1). Fixtures are verbatim payloads from the first
- * Ring 4 (`ORE_06`) capture after SpO2 was enabled (strap log 2026-09-27); expected percentages are the
- * gen4 quadratic, clamped 85-100 and rounded.
+ * The `0x8b` spo2_r_pi path (OURA_PROTOCOL.md s6.5.1): verbatim decode → ONE OURA_SPO2_RPI event per record →
+ * the stored row → the nightly estimate. Fixtures are verbatim payloads from the first Ring 4 (`ORE_06`)
+ * capture after SpO2 was enabled (strap log 2026-09-27), with their real ring-times.
  */
 class OuraSpO2RatioTest {
     private fun rec(hex: String, rt: Long = 44_340_307L) =
         OuraRecord(type = 0x8B, ringTimestamp = rt, payload = hex.chunked(2).map { it.toInt(16) }.toIntArray())
 
-    @Test
-    fun decodesRealRing4Payload() {
-        val out = OuraDecoders.decodeSpO2RatioPi(rec("0023619125d576248772235a72"))!!
-        assertEquals(listOf(98, 98, 98, 98), out.map { it.value })
-        assertEquals(listOf(0, 1, 2, 3), out.map { it.index })
-        assertTrue(out.all { it.count == 4 && it.unit == OuraSpO2Channel.RATIO_PERCENT_UNIT })
-        assertEquals(
-            listOf(96, 96, 94, 93),
-            OuraDecoders.decodeSpO2RatioPi(rec("002a6a932a6b922faff2310aff".replace("310aff", "310a00")))!!.map { it.value },
-        )
-    }
+    /** The 03:57 capture: 8 records, real ring-times (2.3-4.6 s apart), including held-PI samples. */
+    private val capture = listOf(
+        44_173_853L to "0023619125d576248772235a72",
+        44_173_899L to "0022c37727296a271e6d23546c",
+        44_173_922L to "0023266c238f6c232094282f84",
+        44_173_967L to "002a6a932a6b922faff2310aff",
+        44_174_013L to "00310bff310aff310aff310aff",
+        44_174_058L to "003104ff2477c7261ac622cb6b",
+        44_174_081L to "00228b9622439622b1d42497ee",
+        44_174_122L to "002247db23cdc5246bd7258ada",
+    )
 
     @Test
-    fun saturatedPerfusionSampleIsSkippedButKeepsItsSecond() {
-        // First sample carries PI 0xFF (the held ~0.766 R); the rest are real.
-        val out = OuraDecoders.decodeSpO2RatioPi(rec("003104ff2477c7261ac622cb6b"))!!
-        assertEquals(listOf(98, 97, 98), out.map { it.value })
-        assertEquals(listOf(1, 2, 3), out.map { it.index })
-        assertTrue(out.all { it.count == 4 })
-        // A record that is ALL held values yields nothing.
-        assertNull(OuraDecoders.decodeSpO2RatioPi(rec("00310bff310aff310aff310aff")))
+    fun decodesTheRecordVerbatim() {
+        val r = OuraDecoders.decodeSpO2RatioPi(rec("0031a28832849133547832d66a"))!!
+        assertEquals(listOf(0x31a2, 0x3284, 0x3354, 0x32d6), r.rX16384)
+        assertEquals(listOf(0x88, 0x91, 0x78, 0x6a), r.pi)
+        assertEquals(44_340_307L, r.ringTimestamp)
+        // Held-PI samples are kept verbatim at decode time; the estimate filters them.
+        assertEquals(listOf(0xff, 0xff, 0xff, 0xff), OuraDecoders.decodeSpO2RatioPi(rec("00310bff310aff310aff310aff"))!!.pi)
     }
 
     @Test
     fun malformedPayloadsDecodeToNull() {
         assertNull(OuraDecoders.decodeSpO2RatioPi(rec("00")))
         assertNull(OuraDecoders.decodeSpO2RatioPi(rec("0031a28832")))     // not 1 + 3n
-        // The smallest well-formed record: one header byte + one sample.
-        assertEquals(listOf(93), OuraDecoders.decodeSpO2RatioPi(rec("0031a288"))!!.map { it.value })
+    }
+
+    @Test
+    fun everyCapturedRecordSurvivesToItsOwnStoredRowWithItsSource() {
+        val d = OuraDriver(ringGen = OuraRingGen.GEN4, authKey = IntArray(16) { it })
+        val base = 1_790_468_000L
+        for (phase in listOf(0.0, 0.3, 0.6, 0.9)) {
+            val events = capture.flatMap { (rt, hex) -> d.ingest(rec(hex, rt)) }
+            assertTrue(events.all { it is OuraEvent.Spo2Ratio })
+            // Anchor ring ticks (0.1 s) to whole seconds at several sub-second phases, like the live anchor.
+            val streams = OuraStreamMapping.streams(events) { rt -> (base + Math.floor(rt / 10.0 + phase)).toInt() }
+            val batch = StreamPersistence.toBatch(streams)
+            // Nothing lands in spo2Sample (no unit column there), and every record keeps a distinct key.
+            assertTrue(batch.spo2.isEmpty())
+            assertEquals(capture.size, batch.events.map { it.ts }.toSet().size)
+            assertTrue(batch.events.all { it.kind == OuraStreamMapping.EVENT_SPO2_RPI })
+        }
+        val one = StreamPersistence.toBatch(
+            OuraStreamMapping.streams(d.ingest(rec("0031a28832849133547832d66a"))) { 1_790_000_000 },
+        ).events.single()
+        assertEquals("""{"pi":[136,145,120,106],"r_x16384":[12706,12932,13140,13014]}""", one.payloadJSON)
+    }
+
+    @Test
+    fun nightlySummaryUsesInSessionRecordsAndSkipsHeldSamples() {
+        val night = DetectedSleep(start = 1_000L, end = 2_000L, efficiency = 1.0, stages = emptyList(), restingHR = null, avgHRV = null)
+        fun row(ts: Long, hex: String) = EventRow(
+            "oura-x", ts, OuraStreamMapping.EVENT_SPO2_RPI,
+            StreamPersistence.toBatch(OuraStreamMapping.streams(listOf(OuraEvent.Spo2Ratio(OuraDecoders.decodeSpO2RatioPi(rec(hex))!!))) { ts.toInt() })
+                .events.single().payloadJSON,
+        )
+        val rows = listOf(
+            row(1_100L, "0023619125d576248772235a72"),   // 98 98 98 98
+            row(1_200L, "003104ff2477c7261ac622cb6b"),   // [held] 98 97 98
+            row(1_300L, "00310bff310aff310aff310aff"),   // all held -> nothing
+            row(3_000L, "0031a28832849133547832d66a"),   // outside the night -> ignored
+        )
+        val s = OuraSpO2Nightly.summary(listOf(night), rows)!!
+        assertEquals(7, s.samples)
+        assertEquals(97, s.low)
+        assertEquals(98, s.high)
+        assertEquals(98.0, s.median, 0.0)
+        assertEquals((98 * 6 + 97) / 7.0, s.mean, 1e-9)
+        assertEquals(98, OuraSpO2Nightly.displayMean(s))
+        assertNull(OuraSpO2Nightly.summary(listOf(night), rows.takeLast(1)))
     }
 
     @Test
     fun percentIsClampedToTheDocumentedRange() {
         assertEquals(100, OuraSpO2Ratio.percent(0.0))
         assertEquals(85, OuraSpO2Ratio.percent(1.5))
-        assertEquals(97, OuraSpO2Ratio.percent(0.6))   // 105.2 - 3.06 - 4.824 = 97.316
-    }
-
-    @Test
-    fun driverRoutesTheTagAndMappingPersistsDerivedPercentages() {
-        val d = OuraDriver(ringGen = OuraRingGen.GEN4, authKey = IntArray(16) { it })
-        val events = d.ingest(rec("0023619125d576248772235a72"))
-        assertEquals(4, events.size)
-        assertTrue(events.all { it is OuraEvent.Spo2 })
-        val streams = OuraStreamMapping.streams(events) { 1_790_000_000 }
-        assertEquals(listOf(1_789_999_997, 1_789_999_998, 1_789_999_999, 1_790_000_000), streams.spo2.map { it.ts })
-        assertTrue(streams.spo2.all { it.red == 98 && it.ir == 0 && it.unit == OuraSpO2Channel.RATIO_PERCENT_UNIT })
-    }
-
-    @Test
-    fun channelNamesTheDerivedPercentage() {
-        assertEquals(OuraSpO2Channel.RATIO_PERCENTAGE, OuraSpO2Channel.forUnit(OuraSpO2Channel.RATIO_PERCENT_UNIT))
-        assertEquals(OuraSpO2Channel.PERCENTAGE, OuraSpO2Channel.forUnit(OuraSpO2Channel.PERCENTAGE_UNIT))
+        assertEquals(93, OuraSpO2Ratio.percent(0x31a2 / 16384.0))
     }
 }
