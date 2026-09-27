@@ -302,6 +302,41 @@ object OuraDecoders {
     // MARK: - SpO2 per-sample (0x6F; s6.5)
 
     /**
+     * Decode a `0x8b` spo2_r_pi_event (OURA_PROTOCOL.md s6.5.1): one header byte, then 3-byte samples of
+     * u16 BIG-endian R-ratio (÷ 16384) + u8 perfusion index. Each R becomes an SpO2 percentage through
+     * [OuraSpO2Ratio.percent] and is tagged [OuraSpO2Channel.RATIO_PERCENT_UNIT], so a derived value can
+     * never be mistaken for the firmware-computed 0x6F channel. The layout [oura-rs] is confirmed on real
+     * Ring 4 (`ORE_06`) captures: every payload is 1 + 3n bytes and the R-ratios sit at 0.53-0.77. Samples
+     * are one per second (4 per record at a ~4.5 s record cadence), so each carries its index like 0x6F.
+     *
+     * A sample whose perfusion-index byte is saturated (`0xFF`) is SKIPPED: in the first Ring 4 capture all 6
+     * of 64 such samples carried the same R (0.766, ~93 %) while every other sample varied (0.53-0.89), the
+     * shape of a held / no-signal value rather than a reading. Inferred, not documented. A skipped sample
+     * still CONSUMES its position, so the survivors keep their true seconds (the 0x5D `00 00` pad rule).
+     */
+    fun decodeSpO2RatioPi(rec: OuraRecord): List<OuraSpO2>? {
+        val b = rec.payload
+        if (b.size < 4 || (b.size - 1) % 3 != 0) return null
+        val positions = (b.size - 1) / 3
+        val out = ArrayList<OuraSpO2>()
+        for (i in 0 until positions) {
+            val o = 1 + i * 3
+            if (b[o + 2] == 0xFF) continue
+            val r = ((b[o] shl 8) or b[o + 1]) / 16384.0
+            out.add(
+                OuraSpO2(
+                    ringTimestamp = rec.ringTimestamp,
+                    value = OuraSpO2Ratio.percent(r),
+                    unit = OuraSpO2Channel.RATIO_PERCENT_UNIT,
+                    index = i,
+                    count = positions,
+                ),
+            )
+        }
+        return out.ifEmpty { null }
+    }
+
+    /**
      * Decode the 0x6F spo2_event: byte6 bits [7:4]=SpO2 base/status field, [3:0]=status flag; then one
      * uint8 SpO2 value per second from byte7 onward (optional 0xFF terminator). Per OURA_PROTOCOL.md
      * s6.5. Returns null on a short body.

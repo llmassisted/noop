@@ -160,6 +160,9 @@ enum class OuraSpO2Channel {
     /** 0x77 — a raw DC perfusion magnitude. Not a percentage, and never stored as one. */
     PERFUSION,
 
+    /** 0x8b — an SpO2 percentage DERIVED on the phone from the ring's R-ratio ([OuraSpO2Ratio]). */
+    RATIO_PERCENTAGE,
+
     /**
      * A channel whose scale is not pinned (0x7B's [STABLE_UNIT]), or a unit tag no decoder stamps (a case
      * variant, or a future tag). Named, never a percentage.
@@ -175,6 +178,7 @@ enum class OuraSpO2Channel {
     val logLabel: String get() = when (this) {
         PERCENTAGE -> "SpO2 percentage"
         PERFUSION -> "SpO2 raw DC perfusion (NOT a percentage)"
+        RATIO_PERCENTAGE -> "SpO2 percentage estimated from the 0x8b R-ratio"
         UNKNOWN -> "SpO2 sample on an unrecognised channel (NOT known to be a percentage)"
     }
 
@@ -184,6 +188,9 @@ enum class OuraSpO2Channel {
 
         /** The unit tag 0x77 stamps on its samples. */
         const val PERFUSION_UNIT = "dc_raw"
+
+        /** The unit tag 0x8b's derived percentages carry (Android fork; see [OuraSpO2Ratio]). */
+        const val RATIO_PERCENT_UNIT = "r_pi_pct"
 
         /**
          * The unit tag 0x7B stamps on its sample. It deliberately resolves to UNKNOWN: the value is a
@@ -203,6 +210,7 @@ enum class OuraSpO2Channel {
         fun forUnit(unit: String): OuraSpO2Channel = when (unit) {
             PERCENTAGE_UNIT -> PERCENTAGE
             PERFUSION_UNIT -> PERFUSION
+            RATIO_PERCENT_UNIT -> RATIO_PERCENTAGE
             else -> UNKNOWN
         }
 
@@ -219,7 +227,7 @@ enum class OuraSpO2Channel {
          */
         fun firstDecodedLogLine(value: Int, unit: String): String {
             val c = forUnit(unit)
-            val pct = if (c == PERCENTAGE) " %" else ""
+            val pct = if (c == PERCENTAGE || c == RATIO_PERCENTAGE) " %" else ""
             return "first ${c.logLabel} decoded (last night) - $value$pct (channel \"$unit\")"
         }
     }

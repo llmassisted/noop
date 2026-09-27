@@ -291,14 +291,6 @@
     },
     {
       "type": "platform_specific",
-      "kind": "add-unpaired-constant",
-      "identity": "kotlin\u0000android/app/src/main/java/com/noop/oura/EventTags.kt::SPO2_R_PI_UNDECODED",
-      "identity_sha256": "a3712c91c37eb0465f18ce767a15017a29039d9de56adbc252a10e3b5ac4db76",
-      "platform": "kotlin",
-      "rationale": "Android-only capture constant for the never-received 0x8b spo2_r_pi tag (OURA_PROTOCOL.md s6.5.1): the history drain logs its first raw payloads as decoder fixtures. No layout is decoded or stored."
-    },
-    {
-      "type": "platform_specific",
       "kind": "add-unpaired-function",
       "identity": "kotlin\u0000android/app/src/main/java/com/noop/oura/Commands.kt::featureReadStatus/1#1",
       "identity_sha256": "ef5617ddd83227e4b97a1c94a9c3bf85922af314fbcfa2a1fbbcfd1baf9a3b29",
@@ -424,6 +416,78 @@
       "identity_sha256": "66bff0ba4ddae17d3628a64dcd7e16e27d5f6b979b0971f36a92d5111b379bb9",
       "platform": "kotlin",
       "rationale": "Kotlin twin of the Swift OuraActivityEstimator (Packages/OuraProtocol/.../ActivityEstimate.swift). Byte-identical output is pinned by OuraActivityEstimatorTest against the verbatim stdout of the Swift source compiled standalone over 300 generated inputs; the ledger cannot pair it by name because both platforms overload `estimate`."
+    },
+    {
+      "type": "platform_specific",
+      "kind": "add-unpaired-constant",
+      "identity": "kotlin\u0000android/app/src/main/java/com/noop/oura/OuraEvents.kt::RATIO_PERCENT_UNIT",
+      "identity_sha256": "45a61921ac2064b62ce539181f06665077c4761da490e2994ce3bd0e3d4e7d8a",
+      "platform": "kotlin",
+      "rationale": "Android-only decode of the Ring 4 0x8b spo2_r_pi stream (OURA_PROTOCOL.md s6.5.1) into a phone-derived SpO2 percentage (gen4 quadratic cited from [open_oura-spo2]), tagged r_pi_pct and surfaced only through the SpO2 estimate display path. The fork's SpO2 feature-mode enable is Android-only, so only this platform receives 0x8b."
+    },
+    {
+      "type": "platform_specific",
+      "kind": "add-unpaired-constant",
+      "identity": "kotlin\u0000android/app/src/main/java/com/noop/oura/OuraSpO2Ratio.kt::COEF_A",
+      "identity_sha256": "a2056e203b381c266ca9fced680aeb0a7a7c7543a42cc22b46c9eda98e709fcc",
+      "platform": "kotlin",
+      "rationale": "Android-only decode of the Ring 4 0x8b spo2_r_pi stream (OURA_PROTOCOL.md s6.5.1) into a phone-derived SpO2 percentage (gen4 quadratic cited from [open_oura-spo2]), tagged r_pi_pct and surfaced only through the SpO2 estimate display path. The fork's SpO2 feature-mode enable is Android-only, so only this platform receives 0x8b."
+    },
+    {
+      "type": "platform_specific",
+      "kind": "add-unpaired-constant",
+      "identity": "kotlin\u0000android/app/src/main/java/com/noop/oura/OuraSpO2Ratio.kt::COEF_B",
+      "identity_sha256": "51718cd3f6b5f9f87080fc1eba1e0e183450a7fc8337f27e8818b66e4ecc6ed3",
+      "platform": "kotlin",
+      "rationale": "Android-only decode of the Ring 4 0x8b spo2_r_pi stream (OURA_PROTOCOL.md s6.5.1) into a phone-derived SpO2 percentage (gen4 quadratic cited from [open_oura-spo2]), tagged r_pi_pct and surfaced only through the SpO2 estimate display path. The fork's SpO2 feature-mode enable is Android-only, so only this platform receives 0x8b."
+    },
+    {
+      "type": "platform_specific",
+      "kind": "add-unpaired-constant",
+      "identity": "kotlin\u0000android/app/src/main/java/com/noop/oura/OuraSpO2Ratio.kt::COEF_C",
+      "identity_sha256": "fa9e607f89e17d69777e680f8f7efd8f8985420c192d6c5652d2640ccccce277",
+      "platform": "kotlin",
+      "rationale": "Android-only decode of the Ring 4 0x8b spo2_r_pi stream (OURA_PROTOCOL.md s6.5.1) into a phone-derived SpO2 percentage (gen4 quadratic cited from [open_oura-spo2]), tagged r_pi_pct and surfaced only through the SpO2 estimate display path. The fork's SpO2 feature-mode enable is Android-only, so only this platform receives 0x8b."
+    },
+    {
+      "type": "platform_specific",
+      "kind": "add-unpaired-constant",
+      "identity": "kotlin\u0000android/app/src/main/java/com/noop/oura/OuraSpO2Ratio.kt::MAX_PERCENT",
+      "identity_sha256": "73e5812e7a5f4625fb87a0e766fc6b093b8ae6d6ef623206c85c76dc4e9d2d9e",
+      "platform": "kotlin",
+      "rationale": "Android-only decode of the Ring 4 0x8b spo2_r_pi stream (OURA_PROTOCOL.md s6.5.1) into a phone-derived SpO2 percentage (gen4 quadratic cited from [open_oura-spo2]), tagged r_pi_pct and surfaced only through the SpO2 estimate display path. The fork's SpO2 feature-mode enable is Android-only, so only this platform receives 0x8b."
+    },
+    {
+      "type": "platform_specific",
+      "kind": "add-unpaired-constant",
+      "identity": "kotlin\u0000android/app/src/main/java/com/noop/oura/OuraSpO2Ratio.kt::MIN_PERCENT",
+      "identity_sha256": "816ea049dde93987ac87346ede773b28a9daa58c8da521a137e9e75c830ad2cc",
+      "platform": "kotlin",
+      "rationale": "Android-only decode of the Ring 4 0x8b spo2_r_pi stream (OURA_PROTOCOL.md s6.5.1) into a phone-derived SpO2 percentage (gen4 quadratic cited from [open_oura-spo2]), tagged r_pi_pct and surfaced only through the SpO2 estimate display path. The fork's SpO2 feature-mode enable is Android-only, so only this platform receives 0x8b."
+    },
+    {
+      "type": "platform_specific",
+      "kind": "add-unpaired-file",
+      "identity": "kotlin\u0000android/app/src/main/java/com/noop/oura/OuraSpO2Ratio.kt",
+      "identity_sha256": "b0d142779a18682c88f529ad0d49551e5b9d2c1a44bcf0b1fba721e5164bb46c",
+      "platform": "kotlin",
+      "rationale": "Android-only decode of the Ring 4 0x8b spo2_r_pi stream (OURA_PROTOCOL.md s6.5.1) into a phone-derived SpO2 percentage (gen4 quadratic cited from [open_oura-spo2]), tagged r_pi_pct and surfaced only through the SpO2 estimate display path. The fork's SpO2 feature-mode enable is Android-only, so only this platform receives 0x8b."
+    },
+    {
+      "type": "platform_specific",
+      "kind": "add-unpaired-function",
+      "identity": "kotlin\u0000android/app/src/main/java/com/noop/oura/Decoders.kt::decodeSpO2RatioPi/1#1",
+      "identity_sha256": "52d3b869b4ac64313faef0c0a61e4ea86f2dbf7a725d9540ed83dabad435fe59",
+      "platform": "kotlin",
+      "rationale": "Android-only decode of the Ring 4 0x8b spo2_r_pi stream (OURA_PROTOCOL.md s6.5.1) into a phone-derived SpO2 percentage (gen4 quadratic cited from [open_oura-spo2]), tagged r_pi_pct and surfaced only through the SpO2 estimate display path. The fork's SpO2 feature-mode enable is Android-only, so only this platform receives 0x8b."
+    },
+    {
+      "type": "platform_specific",
+      "kind": "add-unpaired-function",
+      "identity": "kotlin\u0000android/app/src/main/java/com/noop/oura/OuraSpO2Ratio.kt::percent/1#1",
+      "identity_sha256": "c513f2be9fff544a5dbee95f54f28458bec979b5a3c57292191ac3f88f1970a7",
+      "platform": "kotlin",
+      "rationale": "Android-only decode of the Ring 4 0x8b spo2_r_pi stream (OURA_PROTOCOL.md s6.5.1) into a phone-derived SpO2 percentage (gen4 quadratic cited from [open_oura-spo2]), tagged r_pi_pct and surfaced only through the SpO2 estimate display path. The fork's SpO2 feature-mode enable is Android-only, so only this platform receives 0x8b."
     }
   ]
 }

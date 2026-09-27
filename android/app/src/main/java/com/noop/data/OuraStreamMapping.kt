@@ -127,7 +127,9 @@ object OuraStreamMapping {
                     // PPG/perfusion signal (-9K to +11.7M in the same capture) - not SpO2 at all, so
                     // blending it into `red` would corrupt any consumer that averages the stream with no
                     // unit filter. Mirrors the Swift OuraStreamMapping twin.
-                    if (ev.value.unit != "raw") continue
+                    // The Android fork also persists 0x8b's phone-derived percentage (unit "r_pi_pct",
+                    // OuraSpO2Ratio): same 85-100 % scale and the same `red` column, distinguishable by unit.
+                    if (ev.value.unit != "raw" && ev.value.unit != com.noop.oura.OuraSpO2Channel.RATIO_PERCENT_UNIT) continue
                     // The ring exposes ONE combined SpO2 reading (not separate red/ir channels): its
                     // raw value goes in `red`; `ir` stays 0 (an unread channel, never a fabricated
                     // second reading). `unit` carries the decoder's own scale tag so downstream never

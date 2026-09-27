@@ -681,7 +681,7 @@ like its sibling banked streams (`.hrv`/`.temp`/`.spo2`/`.sleepPhase`) — the f
   for this signal, not a validated calibration. More nights (ideally spanning the known overshoot swing)
   are needed before any offset is defensible enough to write to `spo2Pct`.
 
-### 6.5.1 SpO2 ratio-of-ratios - `0x8b` `spo2_r_pi_event` — **NOT OBSERVED in NOOP captures**
+### 6.5.1 SpO2 ratio-of-ratios - `0x8b` `spo2_r_pi_event` — **OBSERVED on Ring 4 once SpO2 mode is automatic (Android fork, 2026-09-27)**
 - Carries the raw **ratio-of-ratios `r`** plus a **perfusion index `pi`** (quality parameter). This is the
   input the official app converts to a percentage, NOT a percentage itself. [open_oura-spo2]
 - **Conversion (app-side, `libecore` `EcoreWrapper.nativeCalculateSpO2Simple`):**
@@ -695,7 +695,8 @@ like its sibling banked streams (`.hrv`/`.temp`/`.spo2`/`.sleepPhase`) — the f
   The two sets differ by <1 % on test data, so the mapping is robust to picking the wrong one; the Ring 5
   mapping is unconfirmed in app 7.18. A naive generic `110 − 25·r` reads ~91 % against a calibrated ~93.4 %
   — i.e. materially worse. [open_oura-spo2]
-- **NOOP has NEVER received `0x8b`**: 0 occurrences across every capture checked (vs 5,585 × `0x6F` and
+- **Ring 4 capture (Android fork, 2026-09-27):** after the Test Centre feature-mode write set SpO2 to automatic on a server-gated ring (§7.5), the first night produced **5,236** `0x8b` records (vs 0 before) at a ~4.5 s record cadence. Every logged payload is `1 + 3n` bytes (one header byte `00`, then `n = 4` samples of u16 **big-endian** R ÷ 16384 + u8 PI), matching [oura-rs]; R sat at 0.53–0.89 and the gen4 quadratic above gives 90–99 %. **Android decodes it** (`OuraDecoders.decodeSpO2RatioPi` → `OuraSpO2Ratio.percent`, clamped 85–100, rounded) into per-second `spo2Sample` rows tagged `r_pi_pct`, laid backward from the record time like `0x6F`; they feed only the SpO2 estimate display path (never `spo2Pct`, never scored). A sample whose PI byte is `0xFF` is skipped (keeping its second): all 6 of 64 such samples in the capture carried the same R (0.766), the shape of a held / no-signal value — inferred, not documented.
+- **Before that capture, NOOP had never received `0x8b`**: 0 occurrences across every capture checked (vs 5,585 × `0x6F` and
   21,706 × `0x77` in the same files), and it is absent from `OuraEventTag`. Whether that is
   generation-specific (the published coefficients name Gen4/Oreo and Cooper), server-flag gated like SpO2
   itself (§7.1), or simply not emitted on this Gen 3 is **unknown**. Worth a targeted check if a properly
