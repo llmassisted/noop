@@ -297,8 +297,18 @@ object IntelligenceEngine {
         spo2: List<com.noop.data.Spo2Sample>,
         from: Long,
         to: Long,
+        diag: (String) -> Unit,
     ): Int? {
         if (DeviceBrandCatalog.isOura(owner)) {
+            // Ring 4: the verbatim 0x8b R-ratio records (OURA_SPO2_RPI) when the night has any; otherwise the
+            // firmware 0x6F percentages through the ceiling@100 transform (Gen 3).
+            val ratioRows = runCatching {
+                repo.eventsByKind(owner, com.noop.data.OuraStreamMapping.EVENT_SPO2_RPI, from, to, STREAM_LIMIT)
+            }.getOrDefault(emptyList())
+            OuraSpO2Nightly.summary(sessions, ratioRows)?.let {
+                diag(OuraSpO2Nightly.line(it))
+                return OuraSpO2Nightly.displayMean(it)
+            }
             return AnalyticsEngine.nightlySpo2CeilingMean(sessions, spo2)?.first
         }
         val auxSamples = repo.v18AuxSamples(owner, from, to, STREAM_LIMIT)
@@ -1399,7 +1409,7 @@ object IntelligenceEngine {
                 // bytes of the JVM's 64 KB per-method ceiling, and this block plus the #1575 trace recorders
                 // put the JaCoCo-instrumented size 30 bytes OVER the budget #1524 guards. Neither change
                 // exceeded it alone — only together, which no single PR's CI could see.
-                spo2CandidateMean(repo, owner, res.sleepSessions, spo2, from, to)?.let {
+                spo2CandidateMean(repo, owner, res.sleepSessions, spo2, from, to, ::dayDiag)?.let {
                     spo2CandidateByDay[res.daily.day] = it
                 }
             }

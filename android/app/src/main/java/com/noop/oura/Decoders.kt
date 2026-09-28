@@ -302,6 +302,27 @@ object OuraDecoders {
     // MARK: - SpO2 per-sample (0x6F; s6.5)
 
     /**
+     * Decode a `0x8b` spo2_r_pi_event (OURA_PROTOCOL.md s6.5.1) VERBATIM: one header byte, then 3-byte samples
+     * of u16 BIG-endian R-ratio (raw; R = value / 16384) + u8 perfusion index. The layout [oura-rs] is confirmed
+     * on real Ring 4 (`ORE_06`) captures (every payload 1 + 3n bytes, R 0.53-0.89). Nothing is converted or
+     * filtered here: the record is stored whole (OURA_SPO2_RPI) and [OuraSpO2Ratio] derives percentages at read
+     * time, so a later timing or calibration finding can re-read every stored night. Null when malformed.
+     */
+    fun decodeSpO2RatioPi(rec: OuraRecord): OuraSpO2RatioRecord? {
+        val b = rec.payload
+        if (b.size < 4 || (b.size - 1) % 3 != 0) return null
+        val n = (b.size - 1) / 3
+        val r = ArrayList<Int>(n)
+        val pi = ArrayList<Int>(n)
+        for (i in 0 until n) {
+            val o = 1 + i * 3
+            r.add(((b[o] and 0xFF) shl 8) or (b[o + 1] and 0xFF))
+            pi.add(b[o + 2] and 0xFF)
+        }
+        return OuraSpO2RatioRecord(rec.ringTimestamp, r, pi)
+    }
+
+    /**
      * Decode the 0x6F spo2_event: byte6 bits [7:4]=SpO2 base/status field, [3:0]=status flag; then one
      * uint8 SpO2 value per second from byte7 onward (optional 0xFF terminator). Per OURA_PROTOCOL.md
      * s6.5. Returns null on a short body.

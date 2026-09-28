@@ -385,9 +385,9 @@ class OuraLiveSource(
     /** Feature ids whose status we have already logged this session (SpO2 0x04 / real_steps 0x0b), so the
      *  read-only feature-status diagnostic prints once per feature, not on every reconnect. */
     private val loggedFeatureStatuses = mutableSetOf<Int>()
-    /** `0x8b` spo2_r_pi records whose raw payload has been logged this session. NOOP has never received the
-     *  tag (OURA_PROTOCOL.md s6.5.1); if enabling SpO2 makes a Ring 4 emit it, the first few raw payloads are
-     *  the fixtures a decoder must be validated against. Capped so a full night cannot flood the log. */
+    /** `0x8b` spo2_r_pi records whose raw payload has been logged this session (OURA_PROTOCOL.md s6.5.1).
+     *  A Ring 4 emits them once SpO2 is enabled; the first few raw payloads per session stay in the log as
+     *  fixtures for the R-ratio decode. Capped so a full night cannot flood the log. */
     private var spo2RatioRecordsLogged = 0
     /** Product-info replies already logged this session, keyed by op+body so the #771/#772 serial/hardware
      *  capture prints each DISTINCT reply once — get_serial and get_hardware both answer under op 0x19, so a
@@ -2322,11 +2322,11 @@ class OuraLiveSource(
                     drain.noteSeenRingTime(rec.ringTimestamp)
                     historyRecordCount += 1
                     historyTagCounts[rec.type] = (historyTagCounts[rec.type] ?: 0L) + 1L
-                    if (rec.type == com.noop.oura.OuraEventTag.SPO2_R_PI_UNDECODED && spo2RatioRecordsLogged < SPO2_R_PI_LOG_LIMIT) {
+                    if (rec.type == com.noop.oura.OuraEventTag.SPO2_R_PI.raw && spo2RatioRecordsLogged < SPO2_R_PI_LOG_LIMIT) {
                         spo2RatioRecordsLogged += 1
                         log("Oura: spo2_r_pi (0x8b) raw rt=${rec.ringTimestamp} payload=" +
                             rec.payload.joinToString("") { "%02x".format(it) } +
-                            " - UNDECODED, capture for OURA_PROTOCOL.md s6.5.1")
+                            " - fixture for the OURA_PROTOCOL.md s6.5.1 R-ratio decode")
                     }
                 }
                 val events = d.ingest(rec)
@@ -2686,6 +2686,11 @@ class OuraLiveSource(
                         "motion=${v.motionCount} state=${v.sleepState}",
                 )
                 enqueueAnchoredOrPark(e, v.ringTimestamp, d)
+            }
+            is OuraEvent.Spo2Ratio -> {
+                // 0x8b SpO2 R-ratio record (history-only): stored verbatim as ONE OURA_SPO2_RPI event per
+                // record (OuraStreamMapping); the SpO2 estimate converts it at read time. Never scored.
+                enqueueAnchoredOrPark(e, e.value.ringTimestamp, d)
             }
             is OuraEvent.MotionVectorEvent -> {
                 // 0x47 averaged accel vector (Tier-A). Persisted as an OURA_MOTION event (same event-table

@@ -44,6 +44,7 @@ enum class OuraEventTag(val raw: Int) {
     // --- SpO2 (Tier A) ---
     SPO2_PER_SAMPLE(0x6F),    // spo2_event per-second, OURA_PROTOCOL.md s6.5
     SPO2_STABLE(0x7B),        // spo2_stable_event (uint16 BIG-endian), OURA_PROTOCOL.md s6.6
+    SPO2_R_PI(0x8B),          // spo2_r_pi_event (R-ratio + perfusion index), OURA_PROTOCOL.md s6.5.1
     SPO2_DC(0x77),            // spo2_dc_event (sign-magnitude deltas), OURA_PROTOCOL.md s6.7
 
     // --- Temperature (Tier A) ---
@@ -130,6 +131,7 @@ enum class OuraEventTag(val raw: Int) {
             HRV_RMSSD -> "HRV_RMSSD"
             SPO2_PER_SAMPLE -> "SPO2_PER_SAMPLE"
             SPO2_STABLE -> "SPO2_STABLE"
+            SPO2_R_PI -> "SPO2_R_PI"
             SPO2_DC -> "SPO2_DC"
             TEMP -> "TEMP"
             TEMP_PERIOD -> "TEMP_PERIOD"
@@ -158,10 +160,5 @@ enum class OuraEventTag(val raw: Int) {
 
         /** Map a `type` byte to its tag, or null when the byte is not in the dictionary (honest). */
         fun fromRaw(raw: Int): OuraEventTag? = byRaw[raw]
-
-        /** `spo2_r_pi_event` (OURA_PROTOCOL.md s6.5.1): SpO2 ratio-of-ratios + perfusion index. Deliberately
-         *  NOT a dictionary entry — never received by NOOP, so no layout is validated; the history drain only
-         *  logs its raw payloads as fixtures. */
-        const val SPO2_R_PI_UNDECODED: Int = 0x8B
     }
 }

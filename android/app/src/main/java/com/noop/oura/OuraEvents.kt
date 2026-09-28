@@ -336,6 +336,15 @@ data class OuraFeatureStatus(
  */
 data class OuraFeatureModeReply(val feature: Int, val status: Int)
 
+/**
+ * One `0x8b` spo2_r_pi record (OURA_PROTOCOL.md s6.5.1), kept VERBATIM: per-sample R-ratio as the raw
+ * u16 (R = [rX16384] / 16384) and the raw perfusion-index byte [pi]. Deliberately NOT turned into per-second
+ * percentages at decode time: the within-record sample spacing is unpinned (records arrive 2.2-4.6 s apart
+ * yet carry 4 samples), so a per-second key would collide, and a derived percentage in `spo2Sample` would
+ * be indistinguishable from the firmware 0x6F channel once stored. [OuraSpO2Ratio] converts at read time.
+ */
+data class OuraSpO2RatioRecord(val ringTimestamp: Long, val rX16384: List<Int>, val pi: List<Int>)
+
 /** A UTC anchor / time-sync event (OURA_PROTOCOL.md s6.11): epoch ms + timezone offset seconds. */
 data class OuraTimeSync(val ringTimestamp: Long, val epochMs: Long, val tzOffsetSeconds: Int)
 
@@ -528,6 +537,9 @@ sealed class OuraEvent {
      */
     data class ActivityInfo(val value: OuraActivityInfo) : OuraEvent()
 
+    /** A verbatim `0x8b` SpO2 R-ratio record (see [OuraSpO2RatioRecord]); stored as an OURA_SPO2_RPI event. */
+    data class Spo2Ratio(val value: OuraSpO2RatioRecord) : OuraEvent()
+
     /**
      * A decoded `0x7E`/`0x7F` real_steps_features record (14 unpacked fields). Still Tier-B (see
      * [OuraRealStepsFields] doc) - split out of the raw-bytes [TierB] wrapper for the same reason
@@ -563,6 +575,7 @@ sealed class OuraEvent {
             is Ibi -> value.ringTimestamp
             is Hrv -> value.ringTimestamp
             is Spo2 -> value.ringTimestamp
+            is Spo2Ratio -> value.ringTimestamp
             is Temp -> value.ringTimestamp
             is Battery -> null
             is SleepPhaseEvent -> value.ringTimestamp
