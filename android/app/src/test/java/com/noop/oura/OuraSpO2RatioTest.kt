@@ -19,7 +19,7 @@ class OuraSpO2RatioTest {
     private fun rec(hex: String, rt: Long = 44_340_307L) =
         OuraRecord(type = 0x8B, ringTimestamp = rt, payload = hex.chunked(2).map { it.toInt(16) }.toIntArray())
 
-    /** The 03:57 capture: 8 records, real ring-times (2.3-4.6 s apart), including held-PI samples. */
+    /** The 03:57 capture: 8 records, real ring-times (2.3-4.6 s apart), including PI=255 samples. */
     private val capture = listOf(
         44_173_853L to "0023619125d576248772235a72",
         44_173_899L to "0022c37727296a271e6d23546c",
@@ -37,7 +37,7 @@ class OuraSpO2RatioTest {
         assertEquals(listOf(0x31a2, 0x3284, 0x3354, 0x32d6), r.rX16384)
         assertEquals(listOf(0x88, 0x91, 0x78, 0x6a), r.pi)
         assertEquals(44_340_307L, r.ringTimestamp)
-        // Held-PI samples are kept verbatim at decode time; the estimate filters them.
+        // PI=255 samples are kept verbatim, just like every other sample.
         assertEquals(listOf(0xff, 0xff, 0xff, 0xff), OuraDecoders.decodeSpO2RatioPi(rec("00310bff310aff310aff310aff"))!!.pi)
     }
 
@@ -69,7 +69,7 @@ class OuraSpO2RatioTest {
     }
 
     @Test
-    fun nightlySummaryUsesInSessionRecordsAndSkipsHeldSamples() {
+    fun nightlySummaryIncludesPi255AndCountsOnlyInSessionSamples() {
         val night = DetectedSleep(start = 1_000L, end = 2_000L, efficiency = 1.0, stages = emptyList(), restingHR = null, avgHRV = null)
         fun row(ts: Long, hex: String) = EventRow(
             "oura-x", ts, OuraStreamMapping.EVENT_SPO2_RPI,
@@ -78,18 +78,40 @@ class OuraSpO2RatioTest {
         )
         val rows = listOf(
             row(1_100L, "0023619125d576248772235a72"),   // 98 98 98 98
-            row(1_200L, "003104ff2477c7261ac622cb6b"),   // [held] 98 97 98
-            row(1_300L, "00310bff310aff310aff310aff"),   // all held -> nothing
-            row(3_000L, "0031a28832849133547832d66a"),   // outside the night -> ignored
+            row(1_200L, "003104ff2477c7261ac622cb6b"),   // 93 98 97 98; one PI=255
+            row(1_300L, "00310bff310aff310aff310aff"),   // 93 93 93 93; all PI=255
+            row(3_000L, "00310bff310aff310aff310aff"),   // outside the night -> ignored, including PI count
         )
         val s = OuraSpO2Nightly.summary(listOf(night), rows)!!
-        assertEquals(7, s.samples)
-        assertEquals(97, s.low)
+        assertEquals(12, s.samples)
+        assertEquals(5, s.pi255)
+        assertEquals(93, s.low)
         assertEquals(98, s.high)
-        assertEquals(98.0, s.median, 0.0)
-        assertEquals((98 * 6 + 97) / 7.0, s.mean, 1e-9)
-        assertEquals(98, OuraSpO2Nightly.displayMean(s))
+        assertEquals(97.5, s.median, 0.0)
+        assertEquals((98 * 6 + 97 + 93 * 5) / 12.0, s.mean, 1e-9)
+        assertEquals(96, OuraSpO2Nightly.displayMean(s))
+        assertEquals(4, OuraSpO2Nightly.summary(listOf(night), listOf(rows[2]))!!.samples)
+        assertEquals(0, OuraSpO2Nightly.summary(listOf(night), rows.take(1))!!.pi255)
         assertNull(OuraSpO2Nightly.summary(listOf(night), rows.takeLast(1)))
+    }
+
+    @Test
+    fun varyingPi255SamplesFromSeptember28ContributeAndAreLogged() {
+        // Verbatim 04:50 capture: three different R values have PI=255 (estimates 98, 97, 97).
+        val record = OuraDecoders.decodeSpO2RatioPi(rec("00254fff2863ff2605ff2456b9"))!!
+        val stored = StreamPersistence.toBatch(
+            OuraStreamMapping.streams(listOf(OuraEvent.Spo2Ratio(record))) { 1_100 },
+        ).events.single()
+        val row = EventRow("oura-x", stored.ts, stored.kind, stored.payloadJSON)
+        val night = DetectedSleep(start = 1_000L, end = 2_000L, efficiency = 1.0, stages = emptyList(), restingHR = null, avgHRV = null)
+        val s = OuraSpO2Nightly.summary(listOf(night), listOf(row))!!
+        assertEquals(4, s.samples)
+        assertEquals(3, s.pi255)
+        assertEquals(97.5, s.mean, 0.0)
+        assertEquals(
+            "spo2 r-pi night samples=4 pi255=3 low=97 median=97.5 mean=97.5 high=98 (0x8b estimate, not scored)",
+            OuraSpO2Nightly.line(s),
+        )
     }
 
     @Test
