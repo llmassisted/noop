@@ -2751,4 +2751,24 @@
     <string name="oura_activity_none_today">Сегодня пока нет данных об активности с кольца.</string>
     <string name="oura_activity_week">Последние 7 дней</string>
     <string name="oura_activity_note">Оценка по интенсивности движения с кольца (MET). Минуты с 3+ MET считаются активными; минуты, не записанные кольцом, считаются неактивными. Это не количество шагов, и в оценках не используется.</string>
+
+    <!-- Oura overnight readings (vital detail) -->
+    <string name="oura_overnight_title">Ночные показания</string>
+    <string name="oura_overnight_spo2_title">Кислород в крови</string>
+    <string name="oura_overnight_subtitle">Показания, записанные ночью, и ночные средние.</string>
+    <string name="oura_overnight_previous">Предыдущая ночь</string>
+    <string name="oura_overnight_next">Следующая ночь</string>
+    <string name="oura_overnight_enable_spo2">Включите «Blood Oxygen: strap estimate» в настройках, чтобы увидеть эти показания.</string>
+    <string name="oura_overnight_retry">Не удалось загрузить показания. Нажмите, чтобы повторить.</string>
+    <string name="oura_overnight_empty">Нет записанных показаний за период сна, заканчивающийся в эту дату. Синхронизируйте кольцо или выберите другую ночь.</string>
+    <string name="oura_overnight_sample_time">%1$s · показание %2$d/%3$d</string>
+    <string name="oura_overnight_count">Записано показаний: %1$d</string>
+    <string name="oura_overnight_range">Мин. %1$s · Макс. %2$s</string>
+    <string name="oura_overnight_spo2_note">Оценки SpO₂ для каждого сохранённого образца. Время относится к записанным группам; время отдельных образцов недоступно. Нажмите или проведите по графику, чтобы посмотреть значение.</string>
+    <string name="oura_overnight_skin_note">Абсолютная температура кожи во время сна, включая значения, не вошедшие в ночное среднее. Нажмите или проведите по графику, чтобы посмотреть значение.</string>
+    <string name="oura_overnight_show">Показать все показания</string>
+    <string name="oura_overnight_hide">Скрыть показания</string>
+    <string name="oura_overnight_previous_page">Назад</string>
+    <string name="oura_overnight_next_page">Далее</string>
+    <string name="oura_overnight_page">%1$d–%2$d из %3$d</string>
 </resources>

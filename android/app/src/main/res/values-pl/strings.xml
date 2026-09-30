@@ -2872,4 +2872,24 @@
     <string name="oura_activity_none_today">Brak dziś danych o aktywności z pierścienia.</string>
     <string name="oura_activity_week">Ostatnie 7 dni</string>
     <string name="oura_activity_note">Szacowane na podstawie intensywności ruchu z pierścienia (MET). Minuty z 3+ MET liczą się jako aktywne; minuty niezarejestrowane przez pierścień liczą się jako nieaktywne. To nie jest liczba kroków i nie wpływa na wyniki.</string>
+
+    <!-- Oura overnight readings (vital detail) -->
+    <string name="oura_overnight_title">Odczyty nocne</string>
+    <string name="oura_overnight_spo2_title">Natlenienie krwi</string>
+    <string name="oura_overnight_subtitle">Odczyty zarejestrowane w nocy i średnie nocne.</string>
+    <string name="oura_overnight_previous">Poprzednia noc</string>
+    <string name="oura_overnight_next">Następna noc</string>
+    <string name="oura_overnight_enable_spo2">Włącz „Blood Oxygen: strap estimate” w Ustawieniach, aby zobaczyć te odczyty.</string>
+    <string name="oura_overnight_retry">Nie udało się wczytać odczytów. Dotknij, aby spróbować ponownie.</string>
+    <string name="oura_overnight_empty">Brak zarejestrowanych odczytów w okresie snu kończącym się tego dnia. Zsynchronizuj pierścień lub wybierz inną noc.</string>
+    <string name="oura_overnight_sample_time">%1$s · odczyt %2$d/%3$d</string>
+    <string name="oura_overnight_count">Zarejestrowane odczyty: %1$d</string>
+    <string name="oura_overnight_range">Min. %1$s · Maks. %2$s</string>
+    <string name="oura_overnight_spo2_note">Szacunki SpO₂ dla każdej zapisanej próbki. Godziny dotyczą zarejestrowanych grup; godziny poszczególnych próbek nie są dostępne. Dotknij lub przeciągnij wykres, aby sprawdzić odczyt.</string>
+    <string name="oura_overnight_skin_note">Bezwzględne temperatury skóry zarejestrowane podczas snu, w tym odczyty pominięte w średniej nocnej. Dotknij lub przeciągnij wykres, aby sprawdzić odczyt.</string>
+    <string name="oura_overnight_show">Pokaż wszystkie odczyty</string>
+    <string name="oura_overnight_hide">Ukryj odczyty</string>
+    <string name="oura_overnight_previous_page">Poprzednia</string>
+    <string name="oura_overnight_next_page">Następna</string>
+    <string name="oura_overnight_page">%1$d–%2$d z %3$d</string>
 </resources>

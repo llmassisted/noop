@@ -2857,4 +2857,24 @@
     <string name="oura_activity_none_today">Pas encore de données d\'activité de la bague aujourd\'hui.</string>
     <string name="oura_activity_week">7 derniers jours</string>
     <string name="oura_activity_note">Estimé à partir de l\'intensité de mouvement de la bague (MET). Les minutes à 3 MET ou plus comptent comme actives ; les minutes non enregistrées par la bague comptent comme inactives. Ce n\'est pas un nombre de pas et ce n\'est pas utilisé dans les scores.</string>
+
+    <!-- Oura overnight readings (vital detail) -->
+    <string name="oura_overnight_title">Relevés nocturnes</string>
+    <string name="oura_overnight_spo2_title">Oxygène sanguin</string>
+    <string name="oura_overnight_subtitle">Relevés enregistrés pendant la nuit et moyennes nocturnes.</string>
+    <string name="oura_overnight_previous">Nuit précédente</string>
+    <string name="oura_overnight_next">Nuit suivante</string>
+    <string name="oura_overnight_enable_spo2">Activez « Blood Oxygen: strap estimate » dans les réglages pour voir ces relevés.</string>
+    <string name="oura_overnight_retry">Impossible de charger les relevés. Touchez pour réessayer.</string>
+    <string name="oura_overnight_empty">Aucun relevé enregistré dans une période de sommeil se terminant à cette date. Synchronisez votre bague ou choisissez une autre nuit.</string>
+    <string name="oura_overnight_sample_time">%1$s · relevé %2$d/%3$d</string>
+    <string name="oura_overnight_count">%1$d relevés enregistrés</string>
+    <string name="oura_overnight_range">Min %1$s · Max %2$s</string>
+    <string name="oura_overnight_spo2_note">Estimations de SpO₂ pour chaque échantillon enregistré. Les heures correspondent aux groupes enregistrés ; l\'heure de chaque échantillon n\'est pas disponible. Touchez ou faites glisser le graphique pour voir un relevé.</string>
+    <string name="oura_overnight_skin_note">Températures cutanées absolues relevées pendant le sommeil, y compris celles exclues de la moyenne nocturne. Touchez ou faites glisser le graphique pour voir un relevé.</string>
+    <string name="oura_overnight_show">Afficher tous les relevés</string>
+    <string name="oura_overnight_hide">Masquer les relevés</string>
+    <string name="oura_overnight_previous_page">Précédent</string>
+    <string name="oura_overnight_next_page">Suivant</string>
+    <string name="oura_overnight_page">%1$d–%2$d sur %3$d</string>
 </resources>

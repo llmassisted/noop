@@ -43,6 +43,33 @@ internal object OuraOvernightReadings {
                 }.getOrDefault(emptyList()).asSequence()
             }.toList()
 
+    /** Upper bound on points drawn in the overnight chart. A full night is ~20,000 SpO2 samples. */
+    const val CHART_MAX_POINTS = 400
+
+    /**
+     * Indices of at most [maxPoints] readings to DRAW, in order: each of `maxPoints / 2` equal buckets
+     * contributes its minimum and maximum, so a brief dip or peak is never averaged away. Only the chart is
+     * thinned; every reading stays in the paginated list and in the low / high line.
+     */
+    fun chartIndices(values: List<Double>, maxPoints: Int = CHART_MAX_POINTS): List<Int> {
+        if (values.size <= maxPoints) return values.indices.toList()
+        val buckets = maxPoints / 2
+        val out = ArrayList<Int>(maxPoints)
+        for (b in 0 until buckets) {
+            val lo = (b.toLong() * values.size / buckets).toInt()
+            val hi = ((b + 1).toLong() * values.size / buckets).toInt()
+            if (lo >= hi) continue
+            var min = lo
+            var max = lo
+            for (i in lo until hi) {
+                if (values[i] < values[min]) min = i
+                if (values[i] > values[max]) max = i
+            }
+            if (min == max) out.add(min) else { out.add(minOf(min, max)); out.add(maxOf(min, max)) }
+        }
+        return out
+    }
+
     fun temperatures(rows: List<SkinTempSample>, windows: List<LongRange>): List<OvernightVitalReading> =
         rows.filter { row -> windows.any { row.ts in it } }.sortedBy { it.ts }
             .map { OvernightVitalReading(it.ts, it.raw / 100.0) }

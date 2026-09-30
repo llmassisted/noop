@@ -2871,4 +2871,24 @@
     <string name="oura_activity_none_today">Heute noch keine Aktivitätsdaten vom Ring.</string>
     <string name="oura_activity_week">Letzte 7 Tage</string>
     <string name="oura_activity_note">Geschätzt aus der Bewegungsintensität des Rings (MET). Minuten ab 3 MET zählen als aktiv; Minuten ohne Ringaufzeichnung zählen als inaktiv. Keine Schrittzahl und nicht Teil der Scores.</string>
+
+    <!-- Oura overnight readings (vital detail) -->
+    <string name="oura_overnight_title">Nächtliche Messwerte</string>
+    <string name="oura_overnight_spo2_title">Blutsauerstoff</string>
+    <string name="oura_overnight_subtitle">Nachts erfasste Messwerte und nächtliche Durchschnitte.</string>
+    <string name="oura_overnight_previous">Vorherige Nacht</string>
+    <string name="oura_overnight_next">Nächste Nacht</string>
+    <string name="oura_overnight_enable_spo2">Aktiviere „Blood Oxygen: strap estimate“ in den Einstellungen, um diese Messwerte zu sehen.</string>
+    <string name="oura_overnight_retry">Messwerte konnten nicht geladen werden. Tippe zum Wiederholen.</string>
+    <string name="oura_overnight_empty">Keine erfassten Messwerte in einem Schlaffenster, das an diesem Datum endet. Synchronisiere deinen Ring oder wähle eine andere Nacht.</string>
+    <string name="oura_overnight_sample_time">%1$s · Messwert %2$d/%3$d</string>
+    <string name="oura_overnight_count">%1$d erfasste Messwerte</string>
+    <string name="oura_overnight_range">Tief %1$s · Hoch %2$s</string>
+    <string name="oura_overnight_spo2_note">SpO₂-Schätzungen für jede gespeicherte Probe. Zeiten beziehen sich auf aufgezeichnete Gruppen; einzelne Probenzeiten sind nicht verfügbar. Tippe oder ziehe im Diagramm, um einen Wert anzusehen.</string>
+    <string name="oura_overnight_skin_note">Absolute Hauttemperaturen während des Schlafs, einschließlich Werten, die nicht in den nächtlichen Durchschnitt eingehen. Tippe oder ziehe im Diagramm, um einen Wert anzusehen.</string>
+    <string name="oura_overnight_show">Alle Messwerte anzeigen</string>
+    <string name="oura_overnight_hide">Messwerte ausblenden</string>
+    <string name="oura_overnight_previous_page">Zurück</string>
+    <string name="oura_overnight_next_page">Weiter</string>
+    <string name="oura_overnight_page">%1$d–%2$d von %3$d</string>
 </resources>

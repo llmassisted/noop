@@ -55,6 +55,19 @@ class OuraOvernightReadingsTest {
         assertEquals(listOf(0L, 10_000L, 20_000L), cursors)
     }
 
+    @Test fun chartThinningKeepsOrderBoundsAndEveryDip() {
+        // A 20,000-sample night: 97 % with one brief 86 % dip and one 100 % peak.
+        val values = List(20_000) { 97.0 }.toMutableList().apply { this[12_345] = 86.0; this[4_321] = 100.0 }
+        val idx = OuraOvernightReadings.chartIndices(values)
+        assertTrue(idx.size <= OuraOvernightReadings.CHART_MAX_POINTS)
+        assertEquals(idx.sorted(), idx)
+        assertEquals(idx.distinct(), idx)
+        assertTrue(12_345 in idx)
+        assertTrue(4_321 in idx)
+        // Small nights are drawn in full.
+        assertEquals((0 until 300).toList(), OuraOvernightReadings.chartIndices(List(300) { it.toDouble() }))
+    }
+
     @Test fun malformedAndOtherSourceRecordsDoNotBecomeReadings() {
         val rows = listOf(
             EventRow("oura-x", 1100, OuraStreamMapping.EVENT_HRV, "{}"),

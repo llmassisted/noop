@@ -97,11 +97,12 @@ internal fun OuraOvernightReadingsCard(vm: AppViewModel, owner: String, key: Str
                 else -> {
                     val readings = loaded.readings
                     val values = remember(readings) { readings.map { it.value } }
-                    val times = remember(readings) { readings.map { it.ts } }
-                    val labels = remember(readings, is24h) { readings.map {
-                        val time = clockTimeLabel(it.ts, is24h)
-                        if (it.count > 1) uiString(R.string.oura_overnight_sample_time, time, it.index + 1, it.count) else time
-                    } }
+                    // Labels are built on demand (drawn points + the visible page), not for all ~20k samples.
+                    val labelOf: (Int) -> String = { i ->
+                        val r = readings[i]
+                        val time = clockTimeLabel(r.ts, is24h)
+                        if (r.count > 1) uiString(R.string.oura_overnight_sample_time, time, r.index + 1, r.count) else time
+                    }
                     val segments = remember(readings) {
                         var segment = 0
                         readings.mapIndexed { index, reading ->
@@ -109,15 +110,21 @@ internal fun OuraOvernightReadingsCard(vm: AppViewModel, owner: String, key: Str
                             segment.toString()
                         }
                     }
+                    // The chart draws at most CHART_MAX_POINTS (bucket min + max, so dips survive).
+                    val drawn = remember(values) { OuraOvernightReadings.chartIndices(values) }
+                    val chartValues = remember(drawn) { drawn.map { values[it] } }
+                    val times = remember(drawn) { drawn.map { readings[it].ts } }
+                    val chartLabels = remember(drawn, is24h) { drawn.map(labelOf) }
+                    val chartSegments = remember(drawn) { drawn.map { segments[it] } }
                     Text(uiString(R.string.oura_overnight_count, readings.size), style = NoopType.subhead, color = Palette.textPrimary)
                     Text(uiString(R.string.oura_overnight_range, format(values.min()), format(values.max())),
                         style = NoopType.footnote, color = Palette.textSecondary)
-                    LineChart(values = values, modifier = Modifier.fillMaxWidth().height(Metrics.chartHeight),
+                    LineChart(values = chartValues, modifier = Modifier.fillMaxWidth().height(Metrics.chartHeight),
                         color = color, fill = false, selectionEnabled = true, showsPoints = readings.size <= 500,
-                        timestamps = times, selectionLabels = labels, segmentIds = segments, formatValue = format)
+                        timestamps = times, selectionLabels = chartLabels, segmentIds = chartSegments, formatValue = format)
                     Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                        Text(clockTimeLabel(times.first(), is24h), style = NoopType.footnote, color = Palette.textTertiary)
-                        Text(clockTimeLabel(times.last(), is24h), style = NoopType.footnote, color = Palette.textTertiary)
+                        Text(clockTimeLabel(readings.first().ts, is24h), style = NoopType.footnote, color = Palette.textTertiary)
+                        Text(clockTimeLabel(readings.last().ts, is24h), style = NoopType.footnote, color = Palette.textTertiary)
                     }
                     Text(uiString(if (key == "spo2") R.string.oura_overnight_spo2_note else R.string.oura_overnight_skin_note),
                         style = NoopType.footnote, color = Palette.textSecondary)
@@ -142,7 +149,7 @@ internal fun OuraOvernightReadingsCard(vm: AppViewModel, owner: String, key: Str
                         }
                         for (index in start until end) {
                             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                                Text(labels[index], style = NoopType.footnote, color = Palette.textSecondary)
+                                Text(labelOf(index), style = NoopType.footnote, color = Palette.textSecondary)
                                 Text(format(readings[index].value), style = NoopType.bodyNumber, color = color)
                             }
                         }
