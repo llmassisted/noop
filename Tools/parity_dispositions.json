@@ -536,6 +536,14 @@
       "identity_sha256": "a77f37236a04c46f1900b9279980bd468a5ec3a357e02e9d2960a677cc81e21c",
       "platform": "kotlin",
       "rationale": "Android-only storage and nightly estimate for the Ring 4 0x8b spo2_r_pi stream (OURA_PROTOCOL.md s6.5.1): records are kept verbatim as OURA_SPO2_RPI events and converted at read time into the Oura SpO2 estimate (never spo2Pct, never scored). The fork's SpO2 feature-mode enable is Android-only, so only this platform receives 0x8b."
+    },
+    {
+      "type": "platform_specific",
+      "kind": "add-unpaired-constant",
+      "identity": "kotlin\u0000android/app/src/main/java/com/noop/data/WhoopDao.kt::RAW_RR_INTERVALS_SQL",
+      "identity_sha256": "338e9b54a6999b995e71e2fa923102fdc97767514edfa480b33da3b91fff591b",
+      "platform": "kotlin",
+      "rationale": "Room needs the raw R-R read as a compile-time SQL constant for its @Query annotation; the Swift twin (WhoopStore Reads.rawRrIntervals, already paired with WhoopDao.rawRrIntervals) builds the same query inline with GRDB. Upstream commit 401b4575 (one beat channel per window), cherry-picked into this fork."
     }
   ]
 }
