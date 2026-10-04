@@ -2900,11 +2900,14 @@
     <string name="oura_overnight_sample_time">%1$s · reading %2$d/%3$d</string>
     <string name="oura_overnight_count">%1$d captured readings</string>
     <string name="oura_overnight_range">Low %1$s · High %2$s</string>
-    <string name="oura_overnight_spo2_note">SpO₂ estimates for every stored sample. Times refer to recorded groups; individual sample times are unavailable. Tap or drag the chart to inspect a reading.</string>
-    <string name="oura_overnight_skin_note">Absolute skin temperatures captured during sleep, including readings excluded from the nightly average. Tap or drag the chart to inspect a reading.</string>
+    <string name="oura_overnight_spo2_note">SpO₂ estimates from stored samples. Grouped samples share their record time. Every individual reading remains available in the list below.</string>
+    <string name="oura_overnight_skin_note">Absolute skin temperatures captured during sleep, including readings excluded from the nightly average. Every individual reading remains available in the list below.</string>
     <string name="oura_overnight_show">Show all readings</string>
     <string name="oura_overnight_hide">Hide readings</string>
     <string name="oura_overnight_previous_page">Previous</string>
     <string name="oura_overnight_next_page">Next</string>
     <string name="oura_overnight_page">%1$d–%2$d of %3$d</string>
+    <string name="oura_overnight_chart_legend">5-minute median · shaded min–max range</string>
+    <string name="oura_overnight_chart_hint">Tap or drag to inspect a 5-minute interval.</string>
+    <string name="oura_overnight_chart_selection">%1$s–%2$s · Median %3$s\nRange %4$s–%5$s · %6$d readings</string>
 </resources>

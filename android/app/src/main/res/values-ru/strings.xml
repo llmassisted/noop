@@ -2764,11 +2764,14 @@
     <string name="oura_overnight_sample_time">%1$s · показание %2$d/%3$d</string>
     <string name="oura_overnight_count">Записано показаний: %1$d</string>
     <string name="oura_overnight_range">Мин. %1$s · Макс. %2$s</string>
-    <string name="oura_overnight_spo2_note">Оценки SpO₂ для каждого сохранённого образца. Время относится к записанным группам; время отдельных образцов недоступно. Нажмите или проведите по графику, чтобы посмотреть значение.</string>
-    <string name="oura_overnight_skin_note">Абсолютная температура кожи во время сна, включая значения, не вошедшие в ночное среднее. Нажмите или проведите по графику, чтобы посмотреть значение.</string>
+    <string name="oura_overnight_spo2_note">Оценки SpO₂ по сохранённым образцам. Образцы в группе имеют общее время записи. Все отдельные показания доступны в списке ниже.</string>
+    <string name="oura_overnight_skin_note">Абсолютная температура кожи во время сна, включая показания, исключённые из среднего за ночь. Все отдельные показания доступны в списке ниже.</string>
     <string name="oura_overnight_show">Показать все показания</string>
     <string name="oura_overnight_hide">Скрыть показания</string>
     <string name="oura_overnight_previous_page">Назад</string>
     <string name="oura_overnight_next_page">Далее</string>
     <string name="oura_overnight_page">%1$d–%2$d из %3$d</string>
+    <string name="oura_overnight_chart_legend">Медиана за 5 минут · затенённый диапазон мин.–макс.</string>
+    <string name="oura_overnight_chart_hint">Коснитесь графика или проведите по нему, чтобы выбрать интервал в 5 минут.</string>
+    <string name="oura_overnight_chart_selection">%1$s–%2$s · Медиана %3$s\nДиапазон %4$s–%5$s · Показаний: %6$d</string>
 </resources>

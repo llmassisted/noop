@@ -55,17 +55,40 @@ class OuraOvernightReadingsTest {
         assertEquals(listOf(0L, 10_000L, 20_000L), cursors)
     }
 
-    @Test fun chartThinningKeepsOrderBoundsAndEveryDip() {
-        // A 20,000-sample night: 97 % with one brief 86 % dip and one 100 % peak.
-        val values = List(20_000) { 97.0 }.toMutableList().apply { this[12_345] = 86.0; this[4_321] = 100.0 }
-        val idx = OuraOvernightReadings.chartIndices(values)
-        assertTrue(idx.size <= OuraOvernightReadings.CHART_MAX_POINTS)
-        assertEquals(idx.sorted(), idx)
-        assertEquals(idx.distinct(), idx)
-        assertTrue(12_345 in idx)
-        assertTrue(4_321 in idx)
-        // Small nights are drawn in full.
-        assertEquals((0 until 300).toList(), OuraOvernightReadings.chartIndices(List(300) { it.toDouble() }))
+    @Test fun chartMedianIsStableWhileFullRangeRetainsBriefDips() {
+        val readings = List(20_000) { i ->
+            OvernightVitalReading(i.toLong(), when (i) { 12_345 -> 86.0; 4_321 -> 100.0; else -> 97.0 })
+        }
+        val buckets = OuraOvernightReadings.chartBuckets(readings)
+        assertEquals(67, buckets.size)
+        assertEquals(20_000, buckets.sumOf { it.count })
+        assertTrue(buckets.all { it.median == 97.0 })
+        assertEquals(86.0, buckets.minOf { it.low }, 0.0)
+        assertEquals(100.0, buckets.maxOf { it.high }, 0.0)
+        assertEquals(20_000, readings.size) // display aggregation never mutates the raw list
+    }
+
+    @Test fun chartUsesTimeBucketsAndKeepsGroupedSamplesAndGaps() {
+        val buckets = OuraOvernightReadings.chartBuckets(listOf(
+            OvernightVitalReading(901, 99.0), OvernightVitalReading(299, 96.0),
+            OvernightVitalReading(299, 98.0), OvernightVitalReading(300, 95.0),
+        ))
+        assertEquals(listOf(0L, 300L, 900L), buckets.map { it.start })
+        assertEquals(listOf(2, 1, 1), buckets.map { it.count })
+        assertEquals(97.0, buckets.first().median, 0.0)
+        assertEquals(0, OuraOvernightReadings.chartBucketAt(buckets, 299))
+        assertEquals(1, OuraOvernightReadings.chartBucketAt(buckets, 300))
+        assertEquals(-1, OuraOvernightReadings.chartBucketAt(buckets, 600))
+        assertEquals(-1, OuraOvernightReadings.chartBucketAt(buckets, 1200))
+    }
+
+    @Test fun chartRecomputesValuesAndTimestampsWhenSampleCountIsUnchanged() {
+        val old = OuraOvernightReadings.chartBuckets(listOf(OvernightVitalReading(301, 97.0)))
+        val fresh = OuraOvernightReadings.chartBuckets(listOf(OvernightVitalReading(601, 99.0)))
+        assertEquals(300L, old.single().start)
+        assertEquals(600L, fresh.single().start)
+        assertEquals(99.0, fresh.single().median, 0.0)
+        assertTrue(OuraOvernightReadings.chartBuckets(emptyList()).isEmpty())
     }
 
     @Test fun malformedAndOtherSourceRecordsDoNotBecomeReadings() {

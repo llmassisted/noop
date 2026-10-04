@@ -21,6 +21,11 @@ internal data class OvernightVitalReading(val ts: Long, val value: Double, val i
 /** Raw readings for sleep windows ending on the selected local date, independent of daily-average availability. */
 internal data class OvernightVitalData(val windows: List<LongRange>, val readings: List<OvernightVitalReading>)
 
+/** Exact sample range and median within one occupied display interval; absent intervals are not filled. */
+internal data class OvernightChartBucket(
+    val start: Long, val end: Long, val low: Double, val median: Double, val high: Double, val count: Int,
+)
+
 /** Android Oura detail adapter: reads existing records only, without changing nightly scoring or storage. */
 internal object OuraOvernightReadings {
     fun windows(sessions: List<SleepSession>, day: LocalDate, zone: ZoneId): List<LongRange> =
@@ -43,32 +48,19 @@ internal object OuraOvernightReadings {
                 }.getOrDefault(emptyList()).asSequence()
             }.toList()
 
-    /** Upper bound on points drawn in the overnight chart. A full night is ~20,000 SpO2 samples. */
-    const val CHART_MAX_POINTS = 400
-
-    /**
-     * Indices of at most [maxPoints] readings to DRAW, in order: each of `maxPoints / 2` equal buckets
-     * contributes its minimum and maximum, so a brief dip or peak is never averaged away. Only the chart is
-     * thinned; every reading stays in the paginated list and in the low / high line.
-     */
-    fun chartIndices(values: List<Double>, maxPoints: Int = CHART_MAX_POINTS): List<Int> {
-        if (values.size <= maxPoints) return values.indices.toList()
-        val buckets = maxPoints / 2
-        val out = ArrayList<Int>(maxPoints)
-        for (b in 0 until buckets) {
-            val lo = (b.toLong() * values.size / buckets).toInt()
-            val hi = ((b + 1).toLong() * values.size / buckets).toInt()
-            if (lo >= hi) continue
-            var min = lo
-            var max = lo
-            for (i in lo until hi) {
-                if (values[i] < values[min]) min = i
-                if (values[i] > values[max]) max = i
+    /** Five-minute display summaries only. Every raw reading remains in the list and nightly statistics. */
+    fun chartBuckets(readings: List<OvernightVitalReading>): List<OvernightChartBucket> =
+        readings.asSequence().filter { it.value.isFinite() }
+            .groupBy { Math.floorDiv(it.ts, 300L) * 300L }.toSortedMap().map { (start, rows) ->
+                val values = rows.map { it.value }.sorted()
+                val n = values.size
+                val median = if (n % 2 == 1) values[n / 2] else (values[n / 2 - 1] + values[n / 2]) / 2.0
+                OvernightChartBucket(start, start + 300L, values.first(), median, values.last(), n)
             }
-            if (min == max) out.add(min) else { out.add(minOf(min, max)); out.add(maxOf(min, max)) }
-        }
-        return out
-    }
+
+    /** Empty time intervals have no selectable value; never snap across a gap in recording. */
+    fun chartBucketAt(buckets: List<OvernightChartBucket>, ts: Long): Int =
+        buckets.indexOfFirst { ts >= it.start && ts < it.end }
 
     fun temperatures(rows: List<SkinTempSample>, windows: List<LongRange>): List<OvernightVitalReading> =
         rows.filter { row -> windows.any { row.ts in it } }.sortedBy { it.ts }

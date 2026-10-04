@@ -2842,11 +2842,14 @@
     <string name="oura_overnight_sample_time">%1$s · 读数 %2$d/%3$d</string>
     <string name="oura_overnight_count">已记录 %1$d 个读数</string>
     <string name="oura_overnight_range">最低 %1$s · 最高 %2$s</string>
-    <string name="oura_overnight_spo2_note">每个已存储样本的血氧估算值。时间对应记录的分组；无法获得单个样本的时间。点按或拖动图表以查看读数。</string>
-    <string name="oura_overnight_skin_note">睡眠期间记录的绝对皮肤温度，包括未计入夜间平均值的读数。点按或拖动图表以查看读数。</string>
+    <string name="oura_overnight_spo2_note">根据已存储样本估算的血氧值。同组样本共用记录时间。每个原始读数仍可在下方列表中查看。</string>
+    <string name="oura_overnight_skin_note">睡眠期间记录的绝对皮肤温度，包括未计入夜间平均值的读数。每个原始读数仍可在下方列表中查看。</string>
     <string name="oura_overnight_show">显示所有读数</string>
     <string name="oura_overnight_hide">隐藏读数</string>
     <string name="oura_overnight_previous_page">上一页</string>
     <string name="oura_overnight_next_page">下一页</string>
     <string name="oura_overnight_page">%1$d–%2$d / %3$d</string>
+    <string name="oura_overnight_chart_legend">5 分钟中位数 · 阴影表示最小值至最大值</string>
+    <string name="oura_overnight_chart_hint">点按或拖动以查看一个 5 分钟区间。</string>
+    <string name="oura_overnight_chart_selection">%1$s–%2$s · 中位数 %3$s\n范围 %4$s–%5$s · %6$d 个读数</string>
 </resources>

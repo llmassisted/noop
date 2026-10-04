@@ -2871,11 +2871,14 @@
     <string name="oura_overnight_sample_time">%1$s · lectura %2$d/%3$d</string>
     <string name="oura_overnight_count">%1$d lecturas registradas</string>
     <string name="oura_overnight_range">Mín. %1$s · Máx. %2$s</string>
-    <string name="oura_overnight_spo2_note">Estimaciones de SpO₂ para cada muestra guardada. Las horas corresponden a grupos registrados; no se dispone de la hora de cada muestra. Toca o arrastra el gráfico para ver una lectura.</string>
-    <string name="oura_overnight_skin_note">Temperaturas absolutas de la piel registradas durante el sueño, incluidas las excluidas del promedio nocturno. Toca o arrastra el gráfico para ver una lectura.</string>
+    <string name="oura_overnight_spo2_note">Estimaciones de SpO₂ de las muestras guardadas. Las muestras agrupadas comparten la hora del registro. Todas las lecturas individuales siguen disponibles en la lista inferior.</string>
+    <string name="oura_overnight_skin_note">Temperaturas absolutas de la piel durante el sueño, incluidas las excluidas del promedio nocturno. Todas las lecturas individuales siguen disponibles en la lista inferior.</string>
     <string name="oura_overnight_show">Mostrar todas las lecturas</string>
     <string name="oura_overnight_hide">Ocultar lecturas</string>
     <string name="oura_overnight_previous_page">Anterior</string>
     <string name="oura_overnight_next_page">Siguiente</string>
     <string name="oura_overnight_page">%1$d–%2$d de %3$d</string>
+    <string name="oura_overnight_chart_legend">Mediana de 5 minutos · rango mín.–máx. sombreado</string>
+    <string name="oura_overnight_chart_hint">Toca o arrastra para ver un intervalo de 5 minutos.</string>
+    <string name="oura_overnight_chart_selection">%1$s–%2$s · Mediana %3$s\nRango %4$s–%5$s · %6$d lecturas</string>
 </resources>

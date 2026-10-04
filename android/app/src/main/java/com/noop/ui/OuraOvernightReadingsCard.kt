@@ -5,7 +5,6 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ChevronLeft
 import androidx.compose.material.icons.filled.ChevronRight
@@ -62,7 +61,9 @@ internal fun OuraOvernightReadingsCard(vm: AppViewModel, owner: String, key: Str
     val is24h = ClockPrefs.uses24Hour(context)
     val color = if (key == "spo2") Palette.metricCyan else Palette.metricRose
     val format: (Double) -> String = { value ->
-        if (key == "spo2") "${value.toInt()}%"
+        if (key == "spo2") {
+            if (value % 1.0 == 0.0) "${value.toInt()}%" else String.format(java.util.Locale.getDefault(), "%.1f%%", value)
+        }
         else UnitFormatter.temperatureFromCelsius(value, tempUnit, decimals = 2)
     }
     NoopCard {
@@ -103,29 +104,10 @@ internal fun OuraOvernightReadingsCard(vm: AppViewModel, owner: String, key: Str
                         val time = clockTimeLabel(r.ts, is24h)
                         if (r.count > 1) uiString(R.string.oura_overnight_sample_time, time, r.index + 1, r.count) else time
                     }
-                    val segments = remember(readings) {
-                        var segment = 0
-                        readings.mapIndexed { index, reading ->
-                            if (index > 0 && reading.ts - readings[index - 1].ts > 300) segment++
-                            segment.toString()
-                        }
-                    }
-                    // The chart draws at most CHART_MAX_POINTS (bucket min + max, so dips survive).
-                    val drawn = remember(values) { OuraOvernightReadings.chartIndices(values) }
-                    val chartValues = remember(drawn) { drawn.map { values[it] } }
-                    val times = remember(drawn) { drawn.map { readings[it].ts } }
-                    val chartLabels = remember(drawn, is24h) { drawn.map(labelOf) }
-                    val chartSegments = remember(drawn) { drawn.map { segments[it] } }
                     Text(uiString(R.string.oura_overnight_count, readings.size), style = NoopType.subhead, color = Palette.textPrimary)
                     Text(uiString(R.string.oura_overnight_range, format(values.min()), format(values.max())),
                         style = NoopType.footnote, color = Palette.textSecondary)
-                    LineChart(values = chartValues, modifier = Modifier.fillMaxWidth().height(Metrics.chartHeight),
-                        color = color, fill = false, selectionEnabled = true, showsPoints = readings.size <= 500,
-                        timestamps = times, selectionLabels = chartLabels, segmentIds = chartSegments, formatValue = format)
-                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                        Text(clockTimeLabel(readings.first().ts, is24h), style = NoopType.footnote, color = Palette.textTertiary)
-                        Text(clockTimeLabel(readings.last().ts, is24h), style = NoopType.footnote, color = Palette.textTertiary)
-                    }
+                    OuraOvernightChart(readings, key, color, format, is24h)
                     Text(uiString(if (key == "spo2") R.string.oura_overnight_spo2_note else R.string.oura_overnight_skin_note),
                         style = NoopType.footnote, color = Palette.textSecondary)
                     TextButton(onClick = { expanded = !expanded }) {
