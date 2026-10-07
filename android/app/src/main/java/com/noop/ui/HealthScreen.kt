@@ -2106,6 +2106,8 @@ fun VitalDetailScreen(vm: AppViewModel, key: String) {
         buildVitalDetail(days, key, tempUnit, effortScale, spo2CandidateByDay, skinTempPreferred)
     }
     var range by remember { mutableStateOf(VitalDetailRange.MONTH) }
+    val hasOvernightReadings = key in setOf("spo2", "skin") &&
+        activeStrapId?.let(com.noop.data.DeviceBrandCatalog::isOura) == true
 
     // The subtitle tracks how much history the metric has, so we never promise a "historical trend" the
     // view isn't showing: Fitness Age with no reading yet -> what it still needs; ANY metric with a single
@@ -2118,8 +2120,14 @@ fun VitalDetailScreen(vm: AppViewModel, key: String) {
     val showDayCycleBackground = remember { NoopPrefs.showDayCycleBackground(context) }
     val skyBehindCards = remember { NoopPrefs.skyBehindCards(context) }
     ScreenScaffold(
-        title = detail?.title ?: if (isStepsDetail) uiString(R.string.l10n_health_screen_steps_cdde4f20) else "Vital Signs",
+        title = detail?.title ?: when (key) {
+            "skin" -> uiString(R.string.l10n_health_screen_skin_temperature_f59127f6)
+            "spo2" -> uiString(R.string.oura_overnight_spo2_title)
+            "steps_est" -> uiString(R.string.l10n_health_screen_steps_cdde4f20)
+            else -> "Vital Signs"
+        },
         subtitle = when {
+            hasOvernightReadings -> uiString(R.string.oura_overnight_subtitle)
             isStepsDetail -> uiString(R.string.steps_history)
             key == "fitness_age" && loadedPoints == 0 -> "What your Fitness Age still needs."
             loadedPoints == 1 -> "Your latest reading — trend to follow."
@@ -2130,6 +2138,9 @@ fun VitalDetailScreen(vm: AppViewModel, key: String) {
         // offset left the lower cards on plain canvas (tester report).
         fullBleedBackground = screenBackdropFullBleed(showDayCycleBackground, skyBehindCards),
     ) {
+        if (hasOvernightReadings) {
+            OuraOvernightReadingsCard(vm, activeStrapId!!, key, days, ouraHistorySyncing)
+        }
         if (isSeriesBacked && !seriesLoaded) {
             DataPendingNote(
                 title = uiString(if (isStepsDetail) R.string.steps_loading_title else R.string.l10n_health_screen_loading_33ce4174),
@@ -2145,6 +2156,8 @@ fun VitalDetailScreen(vm: AppViewModel, key: String) {
             return@ScreenScaffold
         }
         if (detail == null || detail.points.isEmpty()) {
+            // Captured Oura readings do not depend on a valid nightly average (for example, the skin wear gate).
+            if (hasOvernightReadings) return@ScreenScaffold
             // Oura may have native five-minute RMSSD buckets before NOOP has enough computed nights for a
             // trend. Keep that real evidence visible rather than hiding it behind the generic two-reading
             // empty state. A single NOOP value is shown beside the native value when their wake-days match.

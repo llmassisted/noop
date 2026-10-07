@@ -2829,4 +2829,27 @@
     <string name="oura_activity_none_today">今天还没有来自戒指的活动数据。</string>
     <string name="oura_activity_week">最近 7 天</string>
     <string name="oura_activity_note">根据戒指的运动强度（MET）估算。3 MET 及以上的分钟计为活动；戒指未记录的分钟计为不活动。这不是步数，也不用于评分。</string>
+
+    <!-- Oura overnight readings (vital detail) -->
+    <string name="oura_overnight_title">夜间读数</string>
+    <string name="oura_overnight_spo2_title">血氧</string>
+    <string name="oura_overnight_subtitle">夜间记录的读数和夜间平均值。</string>
+    <string name="oura_overnight_previous">前一晚</string>
+    <string name="oura_overnight_next">后一晚</string>
+    <string name="oura_overnight_enable_spo2">请在设置中开启“Blood Oxygen: strap estimate”以查看这些读数。</string>
+    <string name="oura_overnight_retry">无法加载读数。点按重试。</string>
+    <string name="oura_overnight_empty">在此日期结束的睡眠时段内没有记录的读数。请同步戒指或选择其他夜晚。</string>
+    <string name="oura_overnight_sample_time">%1$s · 读数 %2$d/%3$d</string>
+    <string name="oura_overnight_count">已记录 %1$d 个读数</string>
+    <string name="oura_overnight_range">最低 %1$s · 最高 %2$s</string>
+    <string name="oura_overnight_spo2_note">根据已存储样本估算的血氧值。同组样本共用记录时间。每个原始读数仍可在下方列表中查看。</string>
+    <string name="oura_overnight_skin_note">睡眠期间记录的绝对皮肤温度，包括未计入夜间平均值的读数。每个原始读数仍可在下方列表中查看。</string>
+    <string name="oura_overnight_show">显示所有读数</string>
+    <string name="oura_overnight_hide">隐藏读数</string>
+    <string name="oura_overnight_previous_page">上一页</string>
+    <string name="oura_overnight_next_page">下一页</string>
+    <string name="oura_overnight_page">%1$d–%2$d / %3$d</string>
+    <string name="oura_overnight_chart_legend">5 分钟中位数 · 阴影表示最小值至最大值</string>
+    <string name="oura_overnight_chart_hint">点按或拖动以查看一个 5 分钟区间。</string>
+    <string name="oura_overnight_chart_selection">%1$s–%2$s · 中位数 %3$s\n范围 %4$s–%5$s · %6$d 个读数</string>
 </resources>

@@ -2858,4 +2858,27 @@
     <string name="oura_activity_none_today">Aún no hay datos de actividad del anillo hoy.</string>
     <string name="oura_activity_week">Últimos 7 días</string>
     <string name="oura_activity_note">Estimado a partir de la intensidad de movimiento del anillo (MET). Los minutos con 3+ MET cuentan como activos; los minutos que el anillo no registró cuentan como inactivos. No es un recuento de pasos ni se usa en las puntuaciones.</string>
+
+    <!-- Oura overnight readings (vital detail) -->
+    <string name="oura_overnight_title">Lecturas nocturnas</string>
+    <string name="oura_overnight_spo2_title">Oxígeno en sangre</string>
+    <string name="oura_overnight_subtitle">Lecturas registradas durante la noche y promedios nocturnos.</string>
+    <string name="oura_overnight_previous">Noche anterior</string>
+    <string name="oura_overnight_next">Noche siguiente</string>
+    <string name="oura_overnight_enable_spo2">Activa «Blood Oxygen: strap estimate» en Ajustes para ver estas lecturas.</string>
+    <string name="oura_overnight_retry">No se pudieron cargar las lecturas. Toca para reintentar.</string>
+    <string name="oura_overnight_empty">No hay lecturas registradas en un periodo de sueño que termine en esta fecha. Sincroniza tu anillo o elige otra noche.</string>
+    <string name="oura_overnight_sample_time">%1$s · lectura %2$d/%3$d</string>
+    <string name="oura_overnight_count">%1$d lecturas registradas</string>
+    <string name="oura_overnight_range">Mín. %1$s · Máx. %2$s</string>
+    <string name="oura_overnight_spo2_note">Estimaciones de SpO₂ de las muestras guardadas. Las muestras agrupadas comparten la hora del registro. Todas las lecturas individuales siguen disponibles en la lista inferior.</string>
+    <string name="oura_overnight_skin_note">Temperaturas absolutas de la piel durante el sueño, incluidas las excluidas del promedio nocturno. Todas las lecturas individuales siguen disponibles en la lista inferior.</string>
+    <string name="oura_overnight_show">Mostrar todas las lecturas</string>
+    <string name="oura_overnight_hide">Ocultar lecturas</string>
+    <string name="oura_overnight_previous_page">Anterior</string>
+    <string name="oura_overnight_next_page">Siguiente</string>
+    <string name="oura_overnight_page">%1$d–%2$d de %3$d</string>
+    <string name="oura_overnight_chart_legend">Mediana de 5 minutos · rango mín.–máx. sombreado</string>
+    <string name="oura_overnight_chart_hint">Toca o arrastra para ver un intervalo de 5 minutos.</string>
+    <string name="oura_overnight_chart_selection">%1$s–%2$s · Mediana %3$s\nRango %4$s–%5$s · %6$d lecturas</string>
 </resources>

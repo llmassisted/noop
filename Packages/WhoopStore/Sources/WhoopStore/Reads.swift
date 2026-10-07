@@ -251,8 +251,9 @@ extension WhoopStore {
     /// The streams are exactly the ones the per-day loop reads and hands to `analyzeDay`:
     /// - `ppgHrSample`: the day's HR read is measured ∪ PPG-derived ([hrSamples]), so a PPG row for a second
     ///   with no measured HR changes the scored series while `hrSample` stays put.
-    /// - `rrInterval`: filtered exactly as [rrIntervals] filters at read (the 0x6E SpO2-IBI duplicate and
-    ///   future-stamped beats are excluded), so the witness counts the beats that are actually scored.
+    /// - `rrInterval`: filtered as [rrIntervals] filters at read (the 0x6E SpO2-IBI duplicate and
+    ///   future-stamped beats are excluded), but WITHOUT its one-Oura-channel selection: the witness counts
+    ///   every beat that selection chooses from, since a new row on either channel can change which is scored.
     /// - `sleepStateSample`: appended from the SAME v18 record at the same `ts` as HR, so a re-offloaded
     ///   record whose HR row is dropped on conflict still lands a new band row that `analyzeDay` scores.
     ///   Its letter is `b` (band), not `s`, which is reserved for the version prefix.
@@ -399,6 +400,13 @@ extension WhoopStore {
         }
     }
 
+    /// The Oura beat channels `rrIntervals` chooses between, as a SQL list: `greenQuality` (0x80) on one
+    /// side, and the amplitude family on the other, `ibiAmplitude` (0x60) + `ibiBare` (0x44). Those two
+    /// share one decoder and were split for labelling only, so they are scored together, never against
+    /// each other. `spo2Ibi` (0x6E) is not listed because `rrIntervals` excludes it outright. Twin of
+    /// Kotlin `SCORABLE_OURA_CHANNELS`, so the channel set cannot drift between the two scoring reads.
+    static let scorableOuraChannels = "(1, 3, 4)"
+
     /// R-R intervals in EMISSION order (#823). `ord` leads the sort: ordering by `rrMs` returned a
     /// second's beats sorted by VALUE, which makes successive beats similar by construction and biases
     /// RMSSD — all successive differences — downward. Pre-v30 rows have `ord` NULL and SQLite sorts NULL
@@ -415,13 +423,24 @@ extension WhoopStore {
     /// The predicate EXCLUDES the one channel proven redundant (`spo2Ibi`, 0x6E) rather than whitelisting
     /// the one preferred (`greenQuality`, 0x80), which matters for what it does NOT drop:
     ///   - Outside strict WHOOP 5 policy, NULL is kept for WHOOP 4 and unlabelled legacy rows.
-    ///   - `ibiAmplitude` (0x60/0x44) is kept. It does not fire on the Gen-3 hardware this was measured
-    ///     on, so there is no evidence it duplicates green — and dropping a ring's ONLY beat source on an
-    ///     untested assumption is the more expensive mistake. If a capture ever shows 0x60 and 0x80 firing
-    ///     together, that is a second exclusion here, decided on that evidence.
+    ///   - `ibiAmplitude` (0x60/0x44) is kept, because dropping a ring's ONLY beat source on an untested
+    ///     assumption is the more expensive mistake.
     /// 0x6E is the one excluded because it is the demonstrated duplicate AND the worse measurement of the
     /// two: it is quantised to an 8 ms grid, applies no quality gate, and runs only while an SpO2
     /// measurement is on — so scoring off it would make HRV coverage a function of the SpO2 duty cycle.
+    ///
+    /// ONE Oura channel per window, not merely one excluded. Captures since have shown 0x60 and 0x80
+    /// firing TOGETHER over the same nights, on two rings. On one, 0x60 alone covers 0.91-0.99 of the
+    /// wall clock and 0x80 adds a partial second copy of 8-33 % of it, so the pair read 1.01-1.31 and the
+    /// #1118 coverage gate refused whichever nights happened to bank more 0x80. Neither channel is a
+    /// duplicate to exclude by name. Which one is complete is a property of the capture, not of the tag,
+    /// so the read keeps green alone when it holds MORE beats in the requested window than the amplitude
+    /// family (0x60 + 0x44, see `scorableOuraChannels`), and the amplitude family alone otherwise, ties
+    /// included. A ring with only one of them keeps it, which is the guarantee the exclusion above was
+    /// protecting. NULL rows and every
+    /// non-Oura code are untouched, so WHOOP and pre-v32 rows read exactly as before. Same shape as the
+    /// WHOOP 5 transport selection below: an uncorrelated subquery over the SAME time/suspect predicates
+    /// as the outer read, evaluated before LIMIT.
     ///
     /// Rows are FILTERED, never deleted: the 0x6E stream stays on disk as the cross-check on green.
     /// Every R-R consumer reads through this one function, so the `hrv diag` trace moves with the scores
@@ -441,17 +460,69 @@ extension WhoopStore {
             // One transport for the complete requested interval. Legacy WHOOP 5 rows mix units and
             // origins, so they remain stored but cannot be converted or spliced into a scored beat train.
             // This subquery uses the SAME time/suspect predicates as the outer read, before LIMIT.
+            // Every other source takes the Oura branch: one beat channel for the interval, the fuller one
+            // (see the doc comment on `rrIntervals`), with NULL and non-Oura codes passing untouched.
             let sourcePredicate = strictWhoop5 ? """
                 srcChannel = (SELECT MIN(srcChannel) FROM rrInterval
                     WHERE deviceId = :d AND ts >= :f AND ts <= :t AND srcChannel IN \(Self.scorableWhoop5Channels)
                     AND (tsSuspect IS NULL OR tsSuspect <> 1))
-                """ : "1"
-            return try Row.fetchAll(db, sql: """
+                """ : """
+                (srcChannel IS NULL OR srcChannel NOT IN \(Self.scorableOuraChannels) OR (srcChannel = 1) = (
+                    SELECT SUM(srcChannel = 1) > SUM(srcChannel <> 1) FROM rrInterval
+                    WHERE deviceId = :d AND ts >= :f AND ts <= :t AND srcChannel IN \(Self.scorableOuraChannels)
+                    AND (tsSuspect IS NULL OR tsSuspect <> 1)))
+                """
+            let rows = try Row.fetchAll(db, sql: """
                 SELECT ts, rrMs, srcChannel, ord, seq FROM rrInterval
                 WHERE deviceId = :d AND ts >= :f AND ts <= :t
                 AND (srcChannel IS NULL OR srcChannel <> :rrx)
                 AND \(sourcePredicate)
                 AND (tsSuspect IS NULL OR tsSuspect <> 1)   -- #1073: exclude future-stamped beats
+                ORDER BY ts ASC, ord ASC, rrMs ASC, seq ASC LIMIT :lim
+                """, arguments: ["d": deviceId, "f": from, "t": to,
+                                 "rrx": RRSourceChannel.spo2Ibi.rawValue, "lim": limit])
+                .map { row in
+                    RRInterval(ts: row["ts"], rrMs: row["rrMs"],
+                               srcChannel: (row["srcChannel"] as Int?).flatMap(RRSourceChannel.init(rawValue:)),
+                               ord: row["ord"] as Int?, seq: row["seq"])
+                }
+            // A ring record served twice is stored twice: each connection anchors on its own SyncTime,
+            // so the second copy lands a second or two off the first and misses the row key instead of
+            // colliding with it (#2456). Collapsed HERE rather than at one scorer, so every SCORING
+            // reader agrees: the damage shows up as a coverage over-count, and coverage is computed
+            // from this read.
+            //
+            // The raw diagnostic export deliberately does NOT come through here and still shows both
+            // copies. That is the point of a raw export, and it is the evidence the duplication was
+            // diagnosed from, so a strap log and the app can legitimately disagree on beat counts.
+            return OuraRedrainCollapse.withoutRedrainedRuns(rows)
+        }
+    }
+
+    /// The diagnostic read: every beat channel except the `spo2Ibi` (0x6E) duplicate, with NO scoring
+    /// selection, so a strap-log count or an export still carries both Oura beat channels as each other's
+    /// cross-check. This is what `rrIntervals` returned before the one-Oura-channel selection. Quarantined
+    /// (`tsSuspect`) beats stay excluded. Twin of Kotlin `WhoopDao.rawRrIntervals` (`RAW_RR_INTERVALS_SQL`).
+    ///
+    /// BANKED, on every device, which is not the same as "unchanged" everywhere. For a ring this restores
+    /// what `rr=` counted in every log filed before #2423. For a WHOOP 5 it CHANGES that number, because
+    /// the strict single-transport selection in `rrIntervals` predates #2423: a 5/MG's `rr=` now counts
+    /// every stored transport rather than the one scored. That is deliberate. This read answers what the
+    /// strap banked, and a legacy WHOOP 5 row that cannot be spliced into a scored beat train was still
+    /// banked; one number meaning "banked on a ring, scored on a strap" would be the worse answer. Expect
+    /// a 5/MG's `rr=` to step up once, and to sit above the scored count from then on.
+    ///
+    /// It also does NOT collapse a record the drain served twice (#2456), where `rrIntervals` does. So on
+    /// a redrained night this counts the duplicates and the `hrv diag` line does not, and the two together
+    /// are what shows a redrain happened at all. A strap log and the app disagreeing on beat counts is the
+    /// signal, not a fault.
+    public func rawRrIntervals(deviceId: String, from: Int, to: Int, limit: Int) async throws -> [RRInterval] {
+        try syncRead { db in
+            try Row.fetchAll(db, sql: """
+                SELECT ts, rrMs, srcChannel, ord, seq FROM rrInterval
+                WHERE deviceId = :d AND ts >= :f AND ts <= :t
+                AND (srcChannel IS NULL OR srcChannel <> :rrx)
+                AND (tsSuspect IS NULL OR tsSuspect <> 1)
                 ORDER BY ts ASC, ord ASC, rrMs ASC, seq ASC LIMIT :lim
                 """, arguments: ["d": deviceId, "f": from, "t": to,
                                  "rrx": RRSourceChannel.spo2Ibi.rawValue, "lim": limit])
