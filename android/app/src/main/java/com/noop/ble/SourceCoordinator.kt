@@ -12,7 +12,9 @@ import com.noop.oura.OuraWearState
 import com.noop.ui.NoopPrefs
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.joinAll
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -103,6 +105,10 @@ class SourceCoordinator(
      *  generic-HR strap path (a footpod / bike sensor / power meter rides StandardHrSource). Default no-op
      *  keeps existing call sites + JVM tests compiling unchanged. */
     private val sensorSink: (StandardHrSource.SensorMetrics) -> Unit = {},
+    /** Fired after an Oura history drain that stored records, once every insert the ring had issued by
+     *  then has completed. Wired at the composition root to the self-hosted push scheduler, the role the
+     *  WHOOP client's `successfulOffloadSink` plays. Default no-op. */
+    private val ouraDrainStoredSink: () -> Unit = {},
     /** Initial registry id for process composition. Nullable keeps plain JVM harnesses honest until their
      * first successful reconcile; production injects its already-resolved startup id. */
     initialActiveDeviceId: String? = null,
@@ -119,6 +125,15 @@ class SourceCoordinator(
         }
     },
 ) {
+
+    /** Oura record and hypnogram-night writes still in flight, so the drain-end sink can wait for exactly
+     *  the writes issued before it instead of guessing a settle delay. */
+    private val ouraPersistJobs: MutableSet<Job> = java.util.Collections.synchronizedSet(mutableSetOf())
+
+    private fun trackOuraPersist(job: Job) {
+        ouraPersistJobs += job
+        job.invokeOnCompletion { ouraPersistJobs -= job }
+    }
 
     /** The single success-only active-id publication for UI and internal identity-adoption consumers. */
     private val _activeDeviceId = MutableStateFlow(initialActiveDeviceId)
@@ -590,13 +605,22 @@ class SourceCoordinator(
                 OuraInstallKeyStore.loadCandidates(ctx, preferredIds)
             },
             persist = { batch: StreamBatch, deviceId: String ->
-                scope.launch { runCatching { repo.insert(batch, deviceId) } }
+                trackOuraPersist(scope.launch { runCatching { repo.insert(batch, deviceId) } })
+            },
+            onDrainStoredData = {
+                // Called on the source's thread right after the drain's final flush, so the snapshot holds
+                // every write that drain issued; later live writes are not waited for.
+                val pending = synchronized(ouraPersistJobs) { ouraPersistJobs.toList() }
+                scope.launch {
+                    pending.joinAll()
+                    runCatching { ouraDrainStoredSink() }
+                }
             },
             persistSleepSession = { s: com.noop.oura.OuraSleepSession, deviceId: String ->
                 // The ring-PROVIDED hypnogram night, upserted under the ring's OWN id (imported/measured
                 // side, NOT the "-noop" computed sibling) so mergeSleepRichness surfaces Oura's SleepNet
                 // staging over NOOP's sparse-motion computed night (#325).
-                scope.launch {
+                trackOuraPersist(scope.launch {
                     runCatching {
                         val session = com.noop.data.SleepSession(
                             deviceId = deviceId, startTs = s.startTs, endTs = s.endTs,
@@ -653,7 +677,7 @@ class SourceCoordinator(
                             repo.upsertSleepSessions(listOf(session))
                         }
                     }
-                }
+                })
             },
             onsetKeying = { NoopPrefs.ouraOnsetKeying(ctx) },  // #1284 residual 3
             notifyMaskFull = { NoopPrefs.ouraNotifyMaskFull(ctx) },  // packed-notification A/B

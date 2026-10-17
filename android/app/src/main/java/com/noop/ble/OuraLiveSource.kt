@@ -160,6 +160,11 @@ class OuraLiveSource(
     private val log: (String) -> Unit = {},
     /** Fired with the ring's battery percent (0-100) when decoded. */
     private val onBattery: (Int) -> Unit = {},
+    /** Fired once per history drain that stored at least one anchored record, after the drain ends and its
+     *  buffered records have been handed to [persist] / [persistSleepSession]. Those writes are asynchronous,
+     *  so a consumer that reads the store must wait for them. The Oura counterpart of the WHOOP client's
+     *  `successfulOffloadSink`. Default no-op. */
+    private val onDrainStoredData: () -> Unit = {},
     /** Fired with the ring's TRUE model label ("Oura Ring 3/4/5") once the GetProductInfo hardware id
      *  resolves a generation on connect, so the app can correct a registry row mis-stamped from the
      *  advertised name (#772). Default no-op. Twin of Swift's `onModel`. */
@@ -945,6 +950,9 @@ class OuraLiveSource(
         pendingContinuation = false
         handler.removeCallbacks(batchQuietRunnable)
         hypnogramAssembler.flush()?.let { persistHypnogramBurst(it) }
+        // Hand the drain's still-buffered records to [persist] now: the buffer otherwise waits for its
+        // count/interval threshold, and [onDrainStoredData] consumers read the store.
+        flush()
         logHistoryTagSummary()
         // Ask the cursor commit whether it actually reset for a reboot rather than reading
         // `drain.sawPreResumeData` directly: that flag is also raised by a stale replay from a second BLE
@@ -952,9 +960,11 @@ class OuraLiveSource(
         // reboot" and answers by keeping the cursor. Snapshotting the flag here (as this did until
         // 2026-09-13) had the scheduler print "ring reboot detected - starting the honest full re-pull"
         // two lines after "not a reboot (#2097)" and burn a chained pass that only re-read the kept cursor.
+        val storedData = drain.maxStoredRingTime > 0
         val rebootFullPullPending = commitResumeCursor(completed)
         advance(OuraTransition.HistoryCursorAdvanced(cursor = historyCursor, moreData = false))
         _historySyncing.value = false
+        if (storedData) runCatching { onDrainStoredData() }
         if (rebootFullPullPending || resumeBacklog) {
             if (chainedDrainPasses >= MAX_CHAINED_DRAIN_PASSES) {
                 log("Oura: drain pass cap ($MAX_CHAINED_DRAIN_PASSES) reached with work remaining - " +

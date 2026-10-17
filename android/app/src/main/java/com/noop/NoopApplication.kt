@@ -184,6 +184,9 @@ class NoopApplication : Application() {
             straplog = { ble.externalLog(it) },
             // A generic strap's standard battery (0x180F) → the same live battery field the WHOOP uses.
             batterySink = { pct -> ble.publishExternalBattery(pct) },
+            // A ring drain that stored records is the Oura equivalent of the WHOOP client's successful
+            // offload: it queues the self-hosted push (a no-op unless the user enabled it).
+            ouraDrainStoredSink = { SelfHostedPushScheduler.enqueueAfterSuccessfulOffload(applicationContext) },
             initialActiveDeviceId = activeDeviceId,
         )
     }
