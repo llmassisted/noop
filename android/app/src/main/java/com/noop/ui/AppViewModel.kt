@@ -1401,6 +1401,10 @@ class AppViewModel(app: Application) : AndroidViewModel(app) {
                     // own cancellation — rethrow it so onCleared() actually stops the loop. (#125)
                 }.onSuccess {
                     NoopPrefs.setAnalyzeWatermark(appContext, analyzeFp)
+                    // The pass just rewrote computed daily rows and sleep sessions. Queue the self-hosted
+                    // push so they reach the receiver without waiting for the next offload or app launch;
+                    // unchanged days are elided by the push's per-day hashes. No-op unless enabled.
+                    runCatching { com.noop.push.SelfHostedPushScheduler.enqueueAfterSuccessfulOffload(appContext) }
                     // #1735: the watermark says WHAT was scored, never WHEN. "re-score: done" goes only to
                     // the live log, so hours later the rolling buffer has dropped it and an export cannot
                     // tell a pass that ran from one that never did - which is half of "my ride still is not

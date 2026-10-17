@@ -13,6 +13,7 @@ import com.noop.ui.NoopPrefs
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -103,6 +104,10 @@ class SourceCoordinator(
      *  generic-HR strap path (a footpod / bike sensor / power meter rides StandardHrSource). Default no-op
      *  keeps existing call sites + JVM tests compiling unchanged. */
     private val sensorSink: (StandardHrSource.SensorMetrics) -> Unit = {},
+    /** Fired after an Oura history drain that stored records, once its asynchronous inserts have had
+     *  [OURA_DRAIN_PERSIST_SETTLE_MS] to commit. Wired at the composition root to the self-hosted push
+     *  scheduler, the role the WHOOP client's `successfulOffloadSink` plays. Default no-op. */
+    private val ouraDrainStoredSink: () -> Unit = {},
     /** Initial registry id for process composition. Nullable keeps plain JVM harnesses honest until their
      * first successful reconcile; production injects its already-resolved startup id. */
     initialActiveDeviceId: String? = null,
@@ -592,6 +597,12 @@ class SourceCoordinator(
             persist = { batch: StreamBatch, deviceId: String ->
                 scope.launch { runCatching { repo.insert(batch, deviceId) } }
             },
+            onDrainStoredData = {
+                scope.launch {
+                    delay(OURA_DRAIN_PERSIST_SETTLE_MS)
+                    runCatching { ouraDrainStoredSink() }
+                }
+            },
             persistSleepSession = { s: com.noop.oura.OuraSleepSession, deviceId: String ->
                 // The ring-PROVIDED hypnogram night, upserted under the ring's OWN id (imported/measured
                 // side, NOT the "-noop" computed sibling) so mergeSleepRichness surfaces Oura's SleepNet
@@ -743,6 +754,10 @@ class SourceCoordinator(
     }
 
     companion object {
+        /** How long [ouraDrainStoredSink] waits for a drain's asynchronous Room inserts to commit. Same
+         *  settle the scorer's drain-end wake uses (AppViewModel.OURA_HISTORY_PERSIST_SETTLE_MS). */
+        const val OURA_DRAIN_PERSIST_SETTLE_MS = 1_500L
+
         /**
          * Classify a device id as WHOOP vs a generic strap. WHOOP if the id is the canonical "my-whoop",
          * the registry row's `brand` is "WHOOP" (case-insensitive), OR the id is unknown — unknown ids
